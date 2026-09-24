@@ -643,6 +643,7 @@ if(BUILD_TESTING)
 		scalar_provenance_tests
 		image_page_table_tests
 		memory_tracker_tests
+		mesh_dispatch_tests
 		page_manager_tests
 		bit_array_tests
 		lru_cache_tests
