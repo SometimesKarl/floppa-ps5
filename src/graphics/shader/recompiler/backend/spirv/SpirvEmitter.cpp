@@ -143,8 +143,34 @@ void ValidateNativeProgram(const IR::Program& program) {
 			              program.memory_info[index].kind == IR::ResourceKind::IndirectBuffer;
 		       });
 	};
+	// Image emission selects descriptors from MemoryInfo::resource. The typed handle's
+	// dense flag is redundant, so a stale flag is safe only when all live uses are valid.
+	const auto valid_image_handle_use = [&](const IR::Use& use) {
+		if (IR::ImageOpcodeInfoOf(use.user->GetOpcode()).access == IR::ImageAccess::None) {
+			return false;
+		}
+		const auto index = use.user->Flags<IR::MemoryFlags>().index;
+		if (index >= program.memory_info.size()) {
+			return false;
+		}
+		const auto& memory = program.memory_info[index];
+		return memory.kind == IR::ResourceKind::Image &&
+		       memory.resource < program.info.images.size();
+	};
 	for (const auto* block: program.blocks) {
 		for (const auto& inst: *block) {
+			const auto image_access = IR::ImageOpcodeInfoOf(inst.GetOpcode()).access;
+			if (image_access != IR::ImageAccess::None) {
+				const auto index = inst.Flags<IR::MemoryFlags>().index;
+				if (index >= program.memory_info.size()) {
+					Fail(program, "image operation has invalid memory metadata");
+				}
+				const auto& memory = program.memory_info[index];
+				if (memory.kind != IR::ResourceKind::Image ||
+				    memory.resource >= program.info.images.size()) {
+					Fail(program, "image operation has an invalid dense resource");
+				}
+			}
 			const auto dense = inst.Flags<uint32_t>();
 			switch (inst.GetOpcode()) {
 				case IR::ValueOpcode::GetBufferResource:
@@ -169,7 +195,9 @@ void ValidateNativeProgram(const IR::Program& program) {
 					}
 					break;
 				case IR::ValueOpcode::GetImageResource:
-					if (dense >= program.info.images.size()) {
+					if (dense >= program.info.images.size() &&
+					    (inst.Uses().empty() ||
+					     !std::ranges::all_of(inst.Uses(), valid_image_handle_use))) {
 						Fail(program, "typed image handle has an invalid dense resource");
 					}
 					break;
