@@ -69,6 +69,13 @@ void SetThreadName(const char* name) {
 	}
 }
 
+void MarkFrame() {
+	// With TRACY_MANUAL_LIFETIME the profiler instance exists only after StartupProfiler.
+	if (tracy::ProfilerAvailable()) {
+		FrameMark;
+	}
+}
+
 void Initialize() {
 	if (Config::ProfilerEnabled() && !tracy::ProfilerAvailable()) {
 		tracy::StartupProfiler();

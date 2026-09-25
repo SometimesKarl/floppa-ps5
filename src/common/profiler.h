@@ -40,6 +40,7 @@ private:
 
 void EndBlock();
 void SetThreadName(const char* name);
+void MarkFrame();
 
 void Initialize();
 void Shutdown();
@@ -82,6 +83,6 @@ struct Lifecycle {
 
 #define KYTY_PROFILER_THREAD(name) Profiler::SetThreadName(name)
 
-#define KYTY_PROFILER_FRAME() FrameMark
+#define KYTY_PROFILER_FRAME() Profiler::MarkFrame()
 
 #endif /* KYTY_COMMON_PROFILER_H_ */
