@@ -668,6 +668,8 @@ if (WIN32)
 endif()
 if (KYTY_CLANG_CL)
 	target_link_libraries(kyty_emulator onecore)
+	# Merged into the linker-generated manifest: opts in to paths longer than MAX_PATH.
+	target_sources(kyty_emulator PRIVATE "${KYTY_SOURCE_DIR}/kyty_emulator.manifest")
 endif()
 if (CLANG AND NOT KYTY_CLANG_CL)
 	target_link_libraries(kyty_emulator pthread)
