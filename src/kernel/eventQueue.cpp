@@ -3,6 +3,7 @@
 #include "common/assert.h"
 #include "common/common.h"
 #include "common/logging/log.h"
+#include "common/profiler.h"
 #include "common/stringUtils.h"
 #include "common/threads.h"
 #include "common/timer.h"
@@ -410,6 +411,7 @@ int KYTY_SYSV_ABI KernelWaitEqueue(KernelEqueue eq, KernelEvent* ev, int num, in
 	     Common::Thread::GetThreadIdUnique());
 
 	if (timo == nullptr) {
+		KYTY_PROFILER_BLOCK("KernelWaitEqueue (blocking)");
 		*out = owner->WaitForEvents(ev, num, 0);
 	}
 
@@ -417,6 +419,7 @@ int KYTY_SYSV_ABI KernelWaitEqueue(KernelEqueue eq, KernelEvent* ev, int num, in
 		if (*timo == 0) {
 			*out = owner->GetTriggeredEvents(ev, num);
 		} else {
+			KYTY_PROFILER_BLOCK("KernelWaitEqueue (blocking, timeout)");
 			*out = owner->WaitForEvents(ev, num, *timo);
 		}
 	}

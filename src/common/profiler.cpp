@@ -9,6 +9,10 @@
 #include <tracy/Tracy.hpp>
 #include <vector>
 
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+#include <windows.h> // IWYU pragma: keep
+#endif
+
 namespace {
 
 thread_local std::vector<Profiler::ScopedBlock*> g_block_stack;
@@ -49,7 +53,18 @@ void EndBlock() {
 }
 
 void SetThreadName(const char* name) {
-	if (tracy::ProfilerAvailable() && name != nullptr) {
+	if (name == nullptr) {
+		return;
+	}
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	// The OS description lets debuggers and per-thread CPU sampling attribute time to
+	// emulator and guest threads without a profiler connection.
+	wchar_t wide[64] {};
+	if (MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, static_cast<int>(std::size(wide))) > 0) {
+		SetThreadDescription(GetCurrentThread(), wide);
+	}
+#endif
+	if (tracy::ProfilerAvailable()) {
 		tracy::SetThreadName(name);
 	}
 }

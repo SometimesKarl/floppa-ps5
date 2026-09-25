@@ -2,6 +2,7 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/profiler.h"
 #include "common/stringUtils.h"
 #include "common/threads.h"
 #include "common/timer.h"
@@ -287,6 +288,7 @@ int KYTY_SYSV_ABI KernelDeleteSema(KernelSema sem) {
 }
 
 int KYTY_SYSV_ABI KernelWaitSema(KernelSema sem, int need, KernelUseconds* time) {
+	KYTY_PROFILER_FUNCTION();
 	if (sem == nullptr) {
 		return KERNEL_ERROR_ESRCH;
 	}

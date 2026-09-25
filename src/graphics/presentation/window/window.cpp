@@ -949,6 +949,7 @@ void WindowContext::UpdateTitle() {
 		SDL_Window*  window;
 		std::string* text;
 	} update {window, &text};
+	KYTY_PROFILER_BLOCK("UpdateTitle: wait for main thread");
 	EXIT_IF(!SDL_RunOnMainThread(
 	    [](void* data) {
 		    auto& title = *static_cast<TitleUpdate*>(data);

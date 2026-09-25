@@ -2,6 +2,7 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/profiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 
 #include <algorithm>
@@ -176,12 +177,14 @@ void CommandScheduler::Flush(SubmitInfo& submit) {
 }
 
 void CommandScheduler::FlushAndWait() {
+	KYTY_PROFILER_FUNCTION();
 	const auto tick = Submit();
 	m_master.Wait(tick);
 	BeginNext();
 }
 
 void CommandScheduler::Finish() {
+	KYTY_PROFILER_FUNCTION();
 	CheckActive();
 	if (!m_command.IsInvalid()) {
 		Submit();
@@ -192,6 +195,7 @@ void CommandScheduler::Finish() {
 }
 
 void CommandScheduler::Wait(uint64_t tick) {
+	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(tick > CurrentTick());
 	if (tick == CurrentTick()) {
 		CheckActive();
@@ -344,6 +348,7 @@ CommandBuffer& CommandScheduler::BeginCommand() {
 }
 
 uint64_t CommandScheduler::Submit(SubmitInfo submit) {
+	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(m_command.IsInvalid());
 	EXIT_IF(submit.num_wait_semaphores > SubmitInfo::MaxSemaphores ||
 	        submit.num_signal_semaphores >= SubmitInfo::MaxSemaphores);

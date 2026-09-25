@@ -2,6 +2,7 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/profiler.h"
 #include "graphics/guest_gpu/graphicsRun.h"
 #include "graphics/presentation/videoOut.h"
 #include "libs/errno.h"
@@ -119,6 +120,7 @@ void RenderContext::UnmapMemory(uint64_t vaddr, uint64_t size) {
 }
 
 void RenderContext::PrepareBda() {
+	KYTY_PROFILER_FUNCTION();
 	std::shared_lock lock(m_mapped_ranges_mutex);
 	m_mapped_ranges.ForEach([this](uint64_t start, uint64_t end) {
 		m_buffer_cache.SynchronizeBuffersInRange(start, end - start);
@@ -127,6 +129,7 @@ void RenderContext::PrepareBda() {
 }
 
 void RenderContext::RunGarbageCollector() {
+	KYTY_PROFILER_FUNCTION();
 	if (m_fault_process_pending) {
 		m_fault_process_pending = false;
 		m_buffer_cache.ProcessFaultBuffer();

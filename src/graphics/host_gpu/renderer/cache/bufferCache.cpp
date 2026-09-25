@@ -373,6 +373,7 @@ bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t siz
 	    },
 	    [&]() noexcept { source = UploadCopies(buffer, copies, total_size); });
 	if (source) {
+		KYTY_PROFILER_BLOCK("SynchronizeBuffer: record upload");
 		auto& command = m_scheduler.Current();
 		command.EndRendering();
 		const auto native = command.Handle();

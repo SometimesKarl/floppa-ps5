@@ -1645,6 +1645,7 @@ KYTY_SYSV_ABI int VideoOutGetEventCount(const EventQueue::KernelEvent* ev) {
 
 KYTY_SYSV_ABI int VideoOutWaitVblank(int handle) {
 	PRINT_NAME();
+	KYTY_PROFILER_FUNCTION();
 
 	auto* ctx = DriverState().Get(handle);
 	if (ctx == nullptr) {
