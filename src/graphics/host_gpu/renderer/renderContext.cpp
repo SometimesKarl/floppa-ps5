@@ -9,6 +9,8 @@
 #include "libs/errno.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 
 namespace Libs::Graphics {
 
@@ -141,6 +143,15 @@ void RenderContext::PrepareBda() {
 
 void RenderContext::RunGarbageCollector() {
 	KYTY_PROFILER_FUNCTION();
+	static const bool print_memory = std::getenv("KYTY_MEMORY_STATS") != nullptr;
+	if (print_memory) {
+		static auto last = std::chrono::steady_clock::now();
+		const auto  now  = std::chrono::steady_clock::now();
+		if (now - last >= std::chrono::seconds(30)) {
+			last = now;
+			m_graphics.PrintMemoryStatistics();
+		}
+	}
 	if (m_fault_process_pending) {
 		m_fault_process_pending = false;
 		m_buffer_cache.ProcessFaultBuffer();

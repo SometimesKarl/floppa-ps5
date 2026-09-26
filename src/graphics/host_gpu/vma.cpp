@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
 
 namespace Libs::Graphics {
 
@@ -75,6 +76,31 @@ void GraphicContext::LogMemoryBudget() const {
 		     static_cast<uint64_t>(budgets[i].statistics.allocationBytes),
 		     static_cast<uint64_t>(budgets[i].statistics.blockBytes));
 	}
+}
+
+void GraphicContext::PrintMemoryStatistics() const {
+	if (allocator == nullptr) {
+		return;
+	}
+	const auto&        properties = GetPhysicalDeviceMemoryProperties();
+	VmaTotalStatistics stats {};
+	vmaCalculateStatistics(allocator, &stats);
+	constexpr double MiB = 1024.0 * 1024.0;
+	for (uint32_t type = 0; type < properties.memoryTypeCount; type++) {
+		const auto& s = stats.memoryType[type].statistics;
+		if (s.blockCount == 0) {
+			continue;
+		}
+		const auto flags = properties.memoryTypes[type].propertyFlags;
+		std::printf("Memory type %u (heap %u, %s%s%s): blocks=%u %.0f MiB, allocations=%u %.0f MiB\n",
+		            type, properties.memoryTypes[type].heapIndex,
+		            (flags & vk::MemoryPropertyFlagBits::eDeviceLocal) ? "device-local " : "",
+		            (flags & vk::MemoryPropertyFlagBits::eHostVisible) ? "host-visible " : "",
+		            (flags & vk::MemoryPropertyFlagBits::eHostCached) ? "host-cached" : "",
+		            s.blockCount, static_cast<double>(s.blockBytes) / MiB, s.allocationCount,
+		            static_cast<double>(s.allocationBytes) / MiB);
+	}
+	std::fflush(stdout);
 }
 
 uint64_t GraphicContext::GetDeviceMemoryUsage() const {
