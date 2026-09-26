@@ -610,6 +610,8 @@ struct DrawEmitInfo {
 	int32_t  vertex_offset = 0;
 	uint32_t first_vertex  = 0;
 	uint32_t first_instance = 0;
+	// Guest DRAW_INDIRECT arguments the GPU reads in place of the counts and offsets above.
+	uint64_t gpu_args = 0;
 };
 
 struct DrawIndexBufferSource {
@@ -982,7 +984,14 @@ static void LogDrawStateIfNeeded(const CommandBuffer& buffer, const DrawCallInfo
 }
 
 static void EmitDrawPrimitives(const HW::UserConfig& ucfg, vk::CommandBuffer vk_buffer,
-                               const DrawCallInfo& draw, const DrawEmitInfo& emit) {
+                               const DrawCallInfo& draw, const DrawEmitInfo& emit,
+                               vk::Buffer args_buffer, vk::DeviceSize args_offset) {
+	if (args_buffer != nullptr) {
+		// The guest argument layout is VkDrawIndirectCommand. Topologies that need the vertex
+		// count on the CPU never reach here (CanDrawAutoFromGpuArgs).
+		vk_buffer.drawIndirect(args_buffer, args_offset, 1, sizeof(vk::DrawIndirectCommand));
+		return;
+	}
 	switch (ucfg.GetPrimType()) {
 		case Prospero::PrimitiveType::kPointList:
 		case Prospero::PrimitiveType::kLineList:
@@ -1083,6 +1092,18 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		vertex_bindings = AcquireVertexBuffers(buffer, state.vertex_info[0]);
 		index_binding   = PrepareIndexBuffer(buffer, index_source);
 	}
+	vk::Buffer     args_buffer = nullptr;
+	vk::DeviceSize args_offset = 0;
+	if (emit.gpu_args != 0) {
+		EXIT_IF(mesh_active || draw.IsIndexed());
+		// Earlier guest GPU work usually wrote these arguments. Reading them on the GPU avoids
+		// draining the queue to read them on the CPU.
+		const auto [source, offset] = m_context.GetBufferCache().ObtainBuffer(
+		    emit.gpu_args, sizeof(vk::DrawIndirectCommand), false);
+		EXIT_IF(source == nullptr || (offset & 3u) != 0);
+		args_buffer = source->Handle();
+		args_offset = offset;
+	}
 	if (draw.IsIndexed()) {
 		LogDrawPhase(draw.Name(), "CreatePipeline");
 	}
@@ -1142,7 +1163,7 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		vk_buffer.drawMeshTasksEXT(mesh_groups, draw.instance_count, 1);
 	} else {
 		KYTY_GPU_ZONE(vk_buffer, "GPU guest draw");
-		EmitDrawPrimitives(ucfg, vk_buffer, draw, emit);
+		EmitDrawPrimitives(ucfg, vk_buffer, draw, emit, args_buffer, args_offset);
 	}
 
 	if (!draw.IsIndexed()) {
@@ -1293,7 +1314,9 @@ void RenderExecutor::DrawAuto(uint64_t submit_id, CommandBuffer& buffer, const D
 	                    args.first_instance);
 
 	Common::LockGuard lock(m_context.GetMutex());
-	if (args.vertex_count == 0 || args.instance_count == 0) {
+	const bool gpu_args = args.gpu_args != 0;
+	EXIT_IF(gpu_args && args.offset_source != DrawOffsetSource::IndirectArgs);
+	if (!gpu_args && (args.vertex_count == 0 || args.instance_count == 0)) {
 		return;
 	}
 
@@ -1361,10 +1384,24 @@ void RenderExecutor::DrawAuto(uint64_t submit_id, CommandBuffer& buffer, const D
 	DrawEmitInfo emit {};
 	emit.first_vertex = static_cast<uint32_t>(vertex_offset + static_cast<int32_t>(args.first_vertex));
 	emit.first_instance = instance_offset;
+	emit.gpu_args       = args.gpu_args;
 
 	DrawIndexBufferSource index_source {};
 	ExecutePreparedDraw(submit_id, buffer, draw, state, topology, emit, index_source, false);
 	ResetBindings();
+}
+
+bool RenderExecutor::CanDrawAutoFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr) const {
+	// Mirrors the stage selection in GetGraphicsPrograms: outside tessellation, merged NGG stages
+	// become a host mesh draw whose task count derives from the vertex count on the CPU. Legacy
+	// quad lists are split into several host draws by that count as well.
+	constexpr uint32_t NggMergedStages = 0x20u;
+	const auto         primitive       = buffer.GetUserConfig().GetPrimType();
+	const bool         mesh = primitive != Prospero::PrimitiveType::kPatch &&
+	                  (buffer.GetRegisters().GetShaderStages() & NggMergedStages) != 0;
+	return m_context.GetGraphics().draw_indirect_first_instance_enabled && args_addr != 0 &&
+	       (args_addr & 3u) == 0 && !mesh &&
+	       primitive != Prospero::PrimitiveType::kQuadListLegacy;
 }
 
 bool RenderExecutor::ResolveColorTargets(CommandBuffer& buffer, uint32_t render_target_slice_offset) {

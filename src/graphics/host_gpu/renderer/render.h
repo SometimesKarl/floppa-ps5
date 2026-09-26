@@ -72,6 +72,8 @@ struct DrawAutoArgs {
 	uint32_t         first_instance             = 0;
 	DrawOffsetSource offset_source              = DrawOffsetSource::DrawState;
 	uint32_t         render_target_slice_offset = 0;
+	// Guest address of DRAW_INDIRECT arguments for the GPU to read; the counts above are unused.
+	uint64_t         gpu_args                   = 0;
 };
 
 struct SubmitInfo {
@@ -171,6 +173,8 @@ public:
 private:
 	void DrawIndex(uint64_t submit_id, CommandBuffer& buffer, const DrawIndexArgs& args);
 	void DrawAuto(uint64_t submit_id, CommandBuffer& buffer, const DrawAutoArgs& args);
+	// Whether a DRAW_INDIRECT under the current state can take its arguments on the GPU.
+	[[nodiscard]] bool CanDrawAutoFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr) const;
 
 	struct GraphicsBindings {
 		std::array<PreparedBindings, 3> vertex;

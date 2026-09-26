@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdio>
 #include <deque>
 #include <memory>
@@ -845,7 +846,21 @@ void CommandProcessor::SetNumInstances(uint32_t num_instances) {
 		num_instances = 1;
 	}
 
-	m_num_instances = num_instances;
+	m_num_instances           = num_instances;
+	m_indirect_instances_addr = 0;
+}
+
+uint32_t CommandProcessor::NumInstances() {
+	if (m_indirect_instances_addr != 0) {
+		static std::atomic<uint32_t> log_count {0};
+		if (log_count.fetch_add(1, std::memory_order_relaxed) < 16) {
+			LOGF("NumInstances: draw inherits the instance count of a GPU-read indirect draw\n");
+		}
+		std::memcpy(&m_num_instances, reinterpret_cast<const void*>(m_indirect_instances_addr),
+		            sizeof(m_num_instances));
+		m_indirect_instances_addr = 0;
+	}
+	return m_num_instances;
 }
 
 void CommandProcessor::SetPredication(uint32_t condition, uint32_t op, uint32_t wait_op,
@@ -904,7 +919,7 @@ void CommandProcessor::SetPredication(uint32_t condition, uint32_t op, uint32_t 
 void CommandProcessor::DrawIndex(DrawIndexArgs args) {
 	args.index_type_and_size = m_index_type_and_size;
 	if (args.instance_count == 0) {
-		args.instance_count = m_num_instances;
+		args.instance_count = NumInstances();
 	}
 	if (GraphicsRunDebugDumpEnabled() && (args.base_vertex != 0 || args.first_instance != 0)) {
 		LOGF("\t draw indexed offsets: base_vertex = %" PRId32 ", first_instance = %" PRIu32 "\n",
@@ -936,9 +951,20 @@ void CommandProcessor::DrawIndirect(uint32_t data_offset, uint32_t draw_initiato
 	    reinterpret_cast<const void*>(m_draw_indirect_args_base_addr + data_offset);
 
 	if (!indexed) {
+		const auto gpu_args = reinterpret_cast<uint64_t>(args_addr);
+		auto&      executor = m_renderer.GetRenderExecutor();
+		if (executor.CanDrawAutoFromGpuArgs(CurrentBuffer(), gpu_args)) {
+			// Earlier GPU work usually wrote these arguments; reading them here would drain the
+			// queue. The draw reads them on the GPU instead.
+			m_indirect_instances_addr = gpu_args + offsetof(DrawIndirectArgs, instance_count);
+			executor.DrawAuto(m_submit_id, CurrentBuffer(),
+			                  {.offset_source = DrawOffsetSource::IndirectArgs, .gpu_args = gpu_args});
+			return;
+		}
 		DrawIndirectArgs args {};
 		std::memcpy(&args, args_addr, sizeof(args));
-		m_num_instances = args.instance_count;
+		m_num_instances           = args.instance_count;
+		m_indirect_instances_addr = 0;
 		DrawIndexAuto({.vertex_count   = args.vertex_count_per_instance,
 		               .instance_count = args.instance_count,
 		               .first_vertex   = args.start_vertex_location,
@@ -973,7 +999,8 @@ void CommandProcessor::DrawIndirect(uint32_t data_offset, uint32_t draw_initiato
 		}
 	}
 
-	m_num_instances = args.instance_count;
+	m_num_instances           = args.instance_count;
+	m_indirect_instances_addr = 0;
 	DrawIndex({.index_count    = index_count,
 	           .index_addr     = index_addr,
 	           .instance_count = args.instance_count,
@@ -1020,7 +1047,8 @@ void CommandProcessor::DrawIndirectMulti(uint32_t data_offset, uint32_t max_coun
 
 		if (!indexed) {
 			auto* args = reinterpret_cast<const DrawIndirectArgs*>(args_addr);
-			m_num_instances = args->instance_count;
+			m_num_instances           = args->instance_count;
+			m_indirect_instances_addr = 0;
 			DrawIndexAuto({.vertex_count   = args->vertex_count_per_instance,
 			               .instance_count = args->instance_count,
 			               .first_vertex   = args->start_vertex_location,
@@ -1047,7 +1075,8 @@ void CommandProcessor::DrawIndirectMulti(uint32_t data_offset, uint32_t max_coun
 			}
 		}
 
-		m_num_instances = args->instance_count;
+		m_num_instances           = args->instance_count;
+		m_indirect_instances_addr = 0;
 		DrawIndex({.index_count    = index_count,
 		           .index_addr     = index_addr,
 		           .instance_count = args->instance_count,
@@ -1130,7 +1159,7 @@ void CommandProcessor::DispatchIndirect(uint64_t args_addr, uint32_t mode) {
 
 void CommandProcessor::DrawIndexAuto(DrawAutoArgs args) {
 	if (args.instance_count == 0) {
-		args.instance_count = m_num_instances;
+		args.instance_count = NumInstances();
 	}
 	m_renderer.GetRenderExecutor().DrawAuto(m_submit_id, CurrentBuffer(), args);
 }
