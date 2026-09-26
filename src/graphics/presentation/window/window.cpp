@@ -25,6 +25,7 @@
 #include "loader/systemContent.h"
 
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <fmt/format.h>
 #include <memory>
@@ -308,7 +309,13 @@ static void GameEventController([[maybe_unused]] const EventController& f) {
 
 	if (f.added) {
 		auto* pad = SDL_OpenGamepad(f.id);
-		EXIT_NOT_IMPLEMENTED(pad == nullptr);
+		if (pad == nullptr) {
+			// Another program can hold the device, or it can vanish between the event and the
+			// open. Keep running without it rather than ending the game.
+			std::printf("Warning: could not open game controller %d: %s\n", static_cast<int>(f.id),
+			            SDL_GetError());
+			return;
+		}
 		int id = SDL_GetJoystickID(SDL_GetGamepadJoystick(pad));
 		Controller::Connect(id);
 	}
