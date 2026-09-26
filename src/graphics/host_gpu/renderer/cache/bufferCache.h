@@ -81,6 +81,17 @@ private:
 		uint64_t generation = 0;
 	};
 	void BumpWatchedWrites(uint64_t vaddr, uint64_t size);
+	[[nodiscard]] bool ReadMemoryAsync(uint64_t vaddr, uint64_t size);
+
+	// A download recorded for a guest-thread read fault whose reader is still waiting.
+	// GPU-thread only; `written` records a GPU write recorded over it in the meantime.
+	struct PendingReadback {
+		uint64_t begin     = 0;
+		uint64_t end       = 0;
+		uint64_t tick      = 0;
+		bool     written   = false;
+		bool     published = false;
+	};
 
 	friend struct BufferCacheTestAccess;
 
@@ -129,6 +140,7 @@ private:
 	PageTable                                         m_page_table;
 	RangeSet                                          m_gpu_modified_ranges;
 	std::map<uint64_t, WriteWatch>                    m_write_watches;
+	std::vector<PendingReadback>                      m_pending_readbacks;
 	uint64_t                                          m_write_watch_max_size   = 0;
 	uint64_t                                          m_write_watch_generation = 0;
 	MemoryTracker                                     m_memory_tracker;

@@ -240,6 +240,9 @@ void BufferCache::ReadMemory(uint64_t vaddr, uint64_t size, bool is_write) {
 		     "addr=0x%016" PRIx64 " size=0x%016" PRIx64 "\n",
 		     vaddr, size);
 	}
+	if (!is_write && !GuestGpu::IsGpuThread() && ReadMemoryAsync(vaddr, size)) {
+		return;
+	}
 	m_scheduler.Context().GetGpu().SendCommandSync([this, vaddr, size, is_write] {
 		if (is_write && !IsRegionRegistered(vaddr, size)) {
 			return;
@@ -253,6 +256,20 @@ void BufferCache::ReadMemory(uint64_t vaddr, uint64_t size, bool is_write) {
 		const auto window_begin = std::max(Common::AlignDown(vaddr, WindowSize), buffer_begin);
 		const auto window_end = std::min(std::max(window_begin + WindowSize, vaddr + size), buffer_end);
 
+		// An asynchronous readback of these bytes already took them out of the GPU-dirty set.
+		// Its write-back must land before this access proceeds, and its pages published, or a
+		// CPU write could be overwritten by it or this thread could fault forever.
+		for (auto& other: m_pending_readbacks) {
+			if (other.begin < window_end && window_begin < other.end) {
+				m_scheduler.Wait(other.tick);
+				m_scheduler.WaitPriorityOperations(other.tick);
+				if (!other.written && !other.published) {
+					m_memory_tracker.UnmarkRegionAsGpuModified(other.begin, other.end - other.begin);
+					other.published = true;
+				}
+			}
+		}
+
 		if (DownloadBufferMemory(buffer, window_begin, window_end - window_begin)) {
 			KYTY_PROFILER_BLOCK("BufferCache::ReadMemory: drain for CPU read of GPU data");
 			const auto tick = m_scheduler.CurrentTick();
@@ -264,6 +281,68 @@ void BufferCache::ReadMemory(uint64_t vaddr, uint64_t size, bool is_write) {
 			m_memory_tracker.MarkRegionAsCpuModified(vaddr, size);
 		}
 	});
+}
+
+// A guest thread faulted reading GPU-written memory. The synchronous path drains the queue on
+// the GPU thread, which then stops feeding the GPU for as long as the reader waits. Instead,
+// record and submit the download on the GPU thread, wait on this thread, and publish the pages
+// back on the GPU thread only if no GPU write was recorded over them meanwhile. Returns false
+// when the synchronous path must still run (a newer write raced in).
+bool BufferCache::ReadMemoryAsync(uint64_t vaddr, uint64_t size) {
+	PendingReadback pending;
+	bool            downloaded = false;
+	m_scheduler.Context().GetGpu().SendCommandSync([&] {
+		auto& buffer = m_slot_buffers[FindBuffer(vaddr, size)];
+
+		// Widen nearby CPU reads so they share one GPU download.
+		constexpr uint64_t WindowSize   = 512 * 1024;
+		const auto         buffer_begin = buffer.CpuAddress();
+		const auto         buffer_end   = buffer_begin + buffer.Size();
+		pending.begin = std::max(Common::AlignDown(vaddr, WindowSize), buffer_begin);
+		pending.end = std::min(std::max(pending.begin + WindowSize, vaddr + size), buffer_end);
+
+		if (DownloadBufferMemory(buffer, pending.begin, pending.end - pending.begin)) {
+			pending.tick = m_scheduler.CurrentTick();
+			m_scheduler.Flush();
+			m_pending_readbacks.push_back(pending);
+			downloaded = true;
+			return;
+		}
+		// Nothing left to copy: an earlier reader's download of these bytes may be in flight,
+		// and the pages stay protected until it publishes them. Wait for it instead of spinning.
+		for (const auto& other: m_pending_readbacks) {
+			if (other.begin < vaddr + size && vaddr < other.end) {
+				pending.tick = std::max(pending.tick, other.tick);
+			}
+		}
+	});
+	if (pending.tick == 0) {
+		return true;
+	}
+	{
+		KYTY_PROFILER_BLOCK("BufferCache::ReadMemoryAsync: guest thread waits for GPU data");
+		m_scheduler.GetMasterSemaphore().Wait(pending.tick);
+		m_scheduler.WaitPriorityOperations(pending.tick);
+	}
+	if (!downloaded) {
+		return true;
+	}
+	bool published = false;
+	m_scheduler.Context().GetGpu().SendCommandSync([&] {
+		const auto it = std::find_if(m_pending_readbacks.begin(), m_pending_readbacks.end(),
+		                             [&](const PendingReadback& p) {
+			                             return p.begin == pending.begin && p.tick == pending.tick;
+		                             });
+		EXIT_IF(it == m_pending_readbacks.end());
+		if (it->published) {
+			published = true;
+		} else if (!it->written) {
+			m_memory_tracker.UnmarkRegionAsGpuModified(pending.begin, pending.end - pending.begin);
+			published = true;
+		}
+		m_pending_readbacks.erase(it);
+	});
+	return published;
 }
 
 BufferId BufferCache::FindBuffer(uint64_t vaddr, uint64_t size) {
@@ -588,10 +667,15 @@ uint64_t BufferCache::WatchGpuWrites(uint64_t vaddr, uint64_t size) {
 }
 
 void BufferCache::BumpWatchedWrites(uint64_t vaddr, uint64_t size) {
+	const auto end = vaddr + size;
+	for (auto& pending: m_pending_readbacks) {
+		if (pending.begin < end && vaddr < pending.end) {
+			pending.written = true;
+		}
+	}
 	if (m_write_watches.empty()) {
 		return;
 	}
-	const auto end = vaddr + size;
 	// Watches start below `end`; only those starting within max_size of vaddr can reach it.
 	const auto lowest = vaddr > m_write_watch_max_size ? vaddr - m_write_watch_max_size : 0;
 	for (auto it = m_write_watches.lower_bound(lowest);
