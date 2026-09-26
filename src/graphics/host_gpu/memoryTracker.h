@@ -29,6 +29,8 @@ public:
 	[[nodiscard]] uint64_t CpuDirtyGeneration() const noexcept {
 		return m_cpu_dirty_generation.load(std::memory_order_acquire);
 	}
+	// A newly cached range may cover CPU-modified pages that no earlier scan reached.
+	void NoteNewCachedRange() noexcept { BumpCpuDirtyGeneration(); }
 	[[nodiscard]] bool IsRegionGpuModified(uint64_t vaddr, uint64_t size);
 	void               MarkRegionAsCpuModified(uint64_t vaddr, uint64_t size);
 	void               MarkRegionAsGpuModified(uint64_t vaddr, uint64_t size);
