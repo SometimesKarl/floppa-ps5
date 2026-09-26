@@ -572,6 +572,7 @@ bool BufferCache::IsRegionGpuModified(uint64_t vaddr, uint64_t size) {
 }
 
 bool BufferCache::HasGpuDirtyBytes(uint64_t vaddr, uint64_t size) {
+	KYTY_PROFILER_FUNCTION();
 	return m_gpu_modified_ranges.Intersects(vaddr, size);
 }
 

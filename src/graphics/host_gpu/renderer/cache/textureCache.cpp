@@ -228,6 +228,7 @@ bool TextureCache::SafeToDownload(const Image& image) {
 }
 
 ImageId TextureCache::InsertImage(const ImageInfo& info) {
+	KYTY_PROFILER_FUNCTION();
 	const auto id = m_slot_images.insert(m_graphics, m_scheduler, info);
 	if (!info.data.Empty()) {
 		RegisterImage(id);
@@ -278,6 +279,7 @@ void TextureCache::UnregisterImage(ImageId id) {
 }
 
 void TextureCache::DeleteImage(ImageId id) {
+	KYTY_PROFILER_FUNCTION();
 	auto* image = m_slot_images.try_get(id);
 	if (image == nullptr || !image->registered) {
 		return;
@@ -539,6 +541,7 @@ void TextureCache::PrepareImageCopy(Image& image) {
 }
 
 void TextureCache::RefreshCopySource(ImageId id) {
+	KYTY_PROFILER_FUNCTION();
 	auto& image = m_slot_images[id];
 	RefreshImage(id);
 	if (image.IsDefinitelyCpuDirty()) {
@@ -622,6 +625,7 @@ bool TextureCache::CopyD16(Image& destination, Image& source) {
 }
 
 void TextureCache::CopyImage(ImageId destination_id, ImageId source_id) {
+	KYTY_PROFILER_FUNCTION();
 	RefreshCopySource(source_id);
 	auto& destination = m_slot_images[destination_id];
 	auto& source      = m_slot_images[source_id];
@@ -659,6 +663,7 @@ void TextureCache::CopyImage(ImageId destination_id, ImageId source_id) {
 
 void TextureCache::CopyImageMip(ImageId destination_id, ImageId source_id, uint32_t mip,
                                 uint32_t layer) {
+	KYTY_PROFILER_FUNCTION();
 	RefreshCopySource(source_id);
 	auto& destination = m_slot_images[destination_id];
 	auto& source      = m_slot_images[source_id];
@@ -776,6 +781,7 @@ ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested, BindingTyp
 TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& requested,
                                                          BindingType binding, ImageId cached_id,
                                                          ImageId merged_id) {
+	KYTY_PROFILER_FUNCTION();
 	auto owner = m_slot_images.try_get(cached_id);
 	if (owner == nullptr) {
 		return {merged_id};
@@ -874,6 +880,7 @@ TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& reques
 }
 
 ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId source_id) {
+	KYTY_PROFILER_FUNCTION();
 	RefreshCopySource(source_id);
 	const auto expanded_id = InsertImage(info);
 	auto&      expanded    = m_slot_images[expanded_id];
@@ -1089,6 +1096,7 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 }
 
 void TextureCache::InitializeImage(ImageId id) {
+	KYTY_PROFILER_FUNCTION();
 	auto& image = m_slot_images[id];
 	if (image.info.data.Empty()) {
 		return;
@@ -1120,6 +1128,7 @@ void TextureCache::InitializeImage(ImageId id) {
 
 void TextureCache::MaterializeDccClear(ImageId id, const ImageDesc& desc,
                                        uint32_t metadata_base_layer) {
+	KYTY_PROFILER_FUNCTION();
 	if (desc.info.metadata.kind != ImageMetadataKind::Dcc) {
 		return;
 	}
@@ -1187,6 +1196,7 @@ void TextureCache::MaterializeDccClear(ImageId id, const ImageDesc& desc,
 }
 
 void TextureCache::RefreshImage(ImageId id) {
+	KYTY_PROFILER_FUNCTION();
 	auto& image = m_slot_images[id];
 	if (image.depth_id &&
 	    (m_slot_images[image.depth_id].info.metadata.stencil_compressed ||
