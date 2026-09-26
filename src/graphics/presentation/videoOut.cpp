@@ -26,8 +26,10 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <list>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -222,6 +224,8 @@ private:
 		int                         index;
 		int64_t                     flip_arg;
 		uint64_t                    submit_ptc;
+		uint64_t                    submit_qpc;
+		uint64_t                    ready_qpc;
 		FlipRequestSource           source;
 		RequestState                state;
 		Graphics::Presenter::Frame* frame;
@@ -799,6 +803,79 @@ void VideoOutDriver::Impl::VblankEnd() {
 	}
 }
 
+namespace {
+
+// KYTY_FRAME_LOG=<path> records one CSV line per host presentation, with raw QueryPerformanceCounter
+// values (the same clock as Python's time.perf_counter on Windows). kind: 0 GPU flip, 1 CPU flip,
+// 2 repeated last frame, 3 blank frame. Only guest flips (kinds 0 and 1) are game frames.
+class FrameLog {
+public:
+	static FrameLog& Instance() {
+		static FrameLog log;
+		return log;
+	}
+
+	[[nodiscard]] bool Enabled() const { return m_file != nullptr; }
+
+	void Write(int kind, uint64_t id, int64_t flip_arg, int index, uint64_t submit_qpc,
+	           uint64_t ready_qpc, uint64_t begin_qpc, uint64_t end_qpc) {
+		std::lock_guard lock(m_mutex);
+		std::fprintf(m_file, "%d,%llu,%lld,%d,%llu,%llu,%llu,%llu\n", kind,
+		             static_cast<unsigned long long>(id), static_cast<long long>(flip_arg), index,
+		             static_cast<unsigned long long>(submit_qpc),
+		             static_cast<unsigned long long>(ready_qpc),
+		             static_cast<unsigned long long>(begin_qpc),
+		             static_cast<unsigned long long>(end_qpc));
+		// Flushing about twice a second bounds what a crash or a forced exit loses.
+		if (++m_lines % 32 == 0) {
+			std::fflush(m_file);
+		}
+	}
+
+	FrameLog(const FrameLog&)            = delete;
+	FrameLog& operator=(const FrameLog&) = delete;
+
+private:
+	FrameLog() {
+		const char* path = std::getenv("KYTY_FRAME_LOG");
+		if (path == nullptr || *path == 0) {
+			return;
+		}
+		m_file = std::fopen(path, "w");
+		if (m_file == nullptr) {
+			return;
+		}
+		std::fprintf(m_file,
+		             "# qpc_frequency=%llu\nkind,id,flip_arg,index,submit_qpc,ready_qpc,"
+		             "present_begin_qpc,present_end_qpc\n",
+		             static_cast<unsigned long long>(Common::Timer::QueryPerformanceFrequency()));
+		std::fflush(m_file);
+	}
+	~FrameLog() {
+		if (m_file != nullptr) {
+			std::fclose(m_file);
+		}
+	}
+
+	std::mutex m_mutex;
+	FILE*      m_file  = nullptr;
+	uint64_t   m_lines = 0;
+};
+
+void PresentLogged(Graphics::Presenter& presenter, Graphics::Presenter::Frame& frame, int kind,
+                   bool reuse = false) {
+	auto& log = FrameLog::Instance();
+	if (!log.Enabled()) {
+		presenter.Present(frame, reuse);
+		return;
+	}
+	const auto begin = Common::Timer::QueryPerformanceCounter();
+	presenter.Present(frame, reuse);
+	log.Write(kind, 0, 0, -1, 0, 0, begin, Common::Timer::QueryPerformanceCounter());
+}
+
+} // namespace
+
 void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
 	const auto frequency = Common::Timer::QueryPerformanceFrequency();
 	EXIT_IF(frequency == 0);
@@ -823,7 +900,7 @@ void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
 
 		if (m_presenter.IsGuestPaused()) {
 			if (auto* frame = m_presenter.PrepareLastFrame(); frame != nullptr) {
-				m_presenter.Present(*frame, true);
+				PresentLogged(m_presenter, *frame, 2, true);
 			}
 			const auto frame_end = Common::Timer::QueryPerformanceCounter();
 			total_wait +=
@@ -835,7 +912,7 @@ void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
 		bool presented = m_flip_queue.Flip(0);
 		if (!presented && m_presenter.NeedsSystemOverlayRefresh()) {
 			if (auto* frame = m_presenter.PrepareLastFrame(); frame != nullptr) {
-				m_presenter.Present(*frame, true);
+				PresentLogged(m_presenter, *frame, 2, true);
 				presented = true;
 			} else {
 				uint32_t width  = 0;
@@ -846,7 +923,7 @@ void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
 					height = m_video_out_ctx[0].height;
 				}
 				auto& blank = m_presenter.PrepareBlankFrame(width, height, true);
-				m_presenter.Present(blank);
+				PresentLogged(m_presenter, blank, 3);
 				presented = true;
 			}
 		}
@@ -864,7 +941,7 @@ void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
 			}
 			if (!any_open) {
 				auto& blank = m_presenter.PrepareBlankFrame(width, height, true);
-				m_presenter.Present(blank);
+				PresentLogged(m_presenter, blank, 3);
 			}
 		}
 		VblankEnd();
@@ -890,6 +967,7 @@ bool FlipQueue::Reserve(VideoOutConfig& cfg, int index, int64_t flip_arg, FlipRe
 	r.index      = index;
 	r.flip_arg   = flip_arg;
 	r.submit_ptc = LibKernel::KernelGetProcessTimeCounter();
+	r.submit_qpc = Common::Timer::QueryPerformanceCounter();
 	r.source     = source;
 	r.state      = RequestState::Reserved;
 
@@ -1063,7 +1141,8 @@ void FlipQueue::Complete(uint64_t request_id) {
 			m_mutex.Unlock();
 			EXIT("completed GPU flip has no prepared recording, id=%" PRIu64 "\n", request_id);
 		}
-		request->state = RequestState::Ready;
+		request->state     = RequestState::Ready;
+		request->ready_qpc = Common::Timer::QueryPerformanceCounter();
 		m_submit_cond_var.Signal();
 		m_mutex.Unlock();
 		return;
@@ -1146,7 +1225,12 @@ bool FlipQueue::Flip(uint32_t micros) {
 	m_requests.front().state = RequestState::Presenting;
 	m_mutex.Unlock();
 
+	const auto present_begin = Common::Timer::QueryPerformanceCounter();
 	m_presenter.Present(*r.frame);
+	if (auto& log = FrameLog::Instance(); log.Enabled()) {
+		log.Write(r.source == FlipRequestSource::GpuEop ? 0 : 1, r.id, r.flip_arg, r.index,
+		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter());
+	}
 
 	m_mutex.Lock();
 	if (m_requests.empty() || m_requests.front().id != r.id ||
