@@ -1220,12 +1220,10 @@ bool TextureCache::MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc, u
 		      vk::FormatFeatureFlagBits::eColorAttachment)) {
 			return false;
 		}
-		// The conditional clear leaves the image GPU-owned whether or not it fires. A render
-		// target is about to be written anyway; other bindings qualify only when already
-		// GPU-owned, so ownership does not change.
-		if (desc.type != BindingType::RenderTarget && !image.IsGpuModified()) {
-			return false;
-		}
+		// The conditional clear leaves the image GPU-owned whether or not it fires. That is
+		// safe for any non-video-out binding: ClearColorIfPredicate first brings a dirty image
+		// up to date from guest memory, so when no clear fires the host image still equals
+		// guest memory, the same state as a rendered target that is later sampled.
 	}
 	std::array<uint8_t, DccClearResolver::MaxCodes>             codes {};
 	std::array<vk::ClearColorValue, DccClearResolver::MaxCodes> clears {};
