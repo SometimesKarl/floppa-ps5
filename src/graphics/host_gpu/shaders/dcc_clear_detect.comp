@@ -1,0 +1,75 @@
+#version 450
+
+// Decides on the GPU whether one DCC metadata slice encodes a fast clear, so binding a render
+// target whose metadata was written by guest shaders needs no CPU readback.
+// result[k] = 1 when every byte of the slice equals candidate code k, else 0.
+// result[MAX_CODES] = 1 when any candidate matched; the slice is then marked expanded (0xff),
+// matching the CPU path, which rewrites the metadata after materializing the clear.
+// One workgroup covers the whole slice, so all reads complete before the barrier that
+// precedes the expansion writes.
+
+#define MAX_CODES 5u
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer metadata_buf {
+    uint metadata[];
+};
+
+layout(std430, binding = 1) writeonly buffer result_buf {
+    uint result[];
+};
+
+layout(push_constant) uniform Params {
+    uint dword_count;
+    uint code_count;
+    uint patterns[MAX_CODES];
+} params;
+
+shared uint mismatch[MAX_CODES];
+shared uint any_match;
+
+void main() {
+    const uint lane = gl_LocalInvocationID.x;
+    if (lane < MAX_CODES) {
+        mismatch[lane] = 0u;
+    }
+    memoryBarrierShared();
+    barrier();
+
+    uint local_mismatch = 0u;
+    for (uint i = lane; i < params.dword_count; i += gl_WorkGroupSize.x) {
+        const uint word = metadata[i];
+        for (uint k = 0u; k < params.code_count; ++k) {
+            if (word != params.patterns[k]) {
+                local_mismatch |= 1u << k;
+            }
+        }
+    }
+    for (uint k = 0u; k < params.code_count; ++k) {
+        if ((local_mismatch & (1u << k)) != 0u) {
+            atomicOr(mismatch[k], 1u);
+        }
+    }
+    memoryBarrierShared();
+    barrier();
+
+    if (lane == 0u) {
+        uint matched_any = 0u;
+        for (uint k = 0u; k < MAX_CODES; ++k) {
+            const uint matched = (k < params.code_count && mismatch[k] == 0u) ? 1u : 0u;
+            result[k] = matched;
+            matched_any |= matched;
+        }
+        result[MAX_CODES] = matched_any;
+        any_match = matched_any;
+    }
+    memoryBarrierShared();
+    barrier();
+
+    if (any_match != 0u) {
+        for (uint i = lane; i < params.dword_count; i += gl_WorkGroupSize.x) {
+            metadata[i] = 0xffffffffu;
+        }
+    }
+}

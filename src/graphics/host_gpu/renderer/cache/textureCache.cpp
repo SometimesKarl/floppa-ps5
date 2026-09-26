@@ -145,7 +145,7 @@ TextureCache::TextureCache(GraphicContext& graphics, CommandScheduler& scheduler
     : m_graphics(graphics), m_scheduler(scheduler), m_page_manager(page_manager),
       m_blit_helper(graphics, scheduler),
       m_tiler(graphics, scheduler, buffer_cache.GetUtilityBuffer(MemoryUsage::Stream)),
-      m_buffer_cache(buffer_cache),
+      m_buffer_cache(buffer_cache), m_dcc_clear_resolver(graphics, scheduler),
       m_readback_linear_images(Config::ReadbackLinearImagesEnabled()) {
 	if (m_graphics.CanReportMemoryUsage()) {
 		constexpr int64_t GiB = 1024ll * 1024 * 1024;
@@ -1161,6 +1161,12 @@ void TextureCache::MaterializeDccClear(ImageId id, const ImageDesc& desc,
 	// Finish native metadata writes before reading backing bytes. This can submit the scheduler,
 	// so discovery runs before final draw uploads and never holds the texture lock across it.
 	if (m_buffer_cache.IsRegionGpuModified(range.address, range.size)) {
+		// Guest compute shaders write these codes for fast clears. Reading them back drains the
+		// queue on every bind of the target, so decide on the GPU where the path supports it.
+		if (desc.type != BindingType::VideoOut &&
+		    MaterializeDccClearOnGpu(id, desc, first, image_first, count, layers)) {
+			return;
+		}
 		m_buffer_cache.ReadMemory(range.address, range.size, false);
 	}
 	const auto slice_size = range.size / layers;
@@ -1193,6 +1199,130 @@ void TextureCache::MaterializeDccClear(ImageId id, const ImageDesc& desc,
 			m_buffer_cache.FillBuffer(address, slice_size, UINT32_MAX, false);
 		}
 	}
+}
+
+bool TextureCache::MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc, uint32_t first,
+                                            uint32_t image_first, uint32_t count,
+                                            uint32_t layers) {
+	KYTY_PROFILER_FUNCTION();
+	if (!m_dcc_clear_resolver.Available()) {
+		return false;
+	}
+	{
+		std::scoped_lock lock {m_lock};
+		const auto& image = m_slot_images[id];
+		// Paths validated for the conditional clear; everything else keeps the readback.
+		if (image.depth_id || image.info.IsDepth() || image.info.IsVolume() ||
+		    image.info.samples != 1 || desc.info.IsVolume() ||
+		    !(image.backing.usage & vk::ImageUsageFlagBits::eColorAttachment) ||
+		    !(m_graphics.GetFormatProperties(desc.view_info.format).optimalTilingFeatures &
+		      vk::FormatFeatureFlagBits::eColorAttachment)) {
+			return false;
+		}
+		// The conditional clear leaves the image GPU-owned whether or not it fires. A render
+		// target is about to be written anyway; other bindings qualify only when already
+		// GPU-owned, so ownership does not change.
+		if (desc.type != BindingType::RenderTarget && !image.IsGpuModified()) {
+			return false;
+		}
+	}
+	std::array<uint8_t, DccClearResolver::MaxCodes>             codes {};
+	std::array<vk::ClearColorValue, DccClearResolver::MaxCodes> clears {};
+	uint32_t                                                    code_count = 0;
+	for (const uint8_t code: {uint8_t {0x00}, uint8_t {0x20}, uint8_t {0x40}, uint8_t {0x80},
+	                          uint8_t {0xc0}}) {
+		if (DecodeDccClear(desc, code, clears[code_count])) {
+			codes[code_count++] = code;
+		}
+	}
+	if (code_count == 0) {
+		// No code decodes for this view, so the metadata cannot request a clear.
+		return true;
+	}
+	const auto range      = desc.info.metadata.range;
+	const auto slice_size = range.size / layers;
+	auto [buffer, buffer_offset] = m_buffer_cache.ObtainBuffer(range.address, range.size, true);
+	const auto alignment         = m_dcc_clear_resolver.StorageAlignment();
+	if (buffer_offset % alignment != 0 || slice_size % alignment != 0) {
+		return false;
+	}
+	auto&       command = m_scheduler.Current();
+	const auto& view    = desc.view_info;
+	command.EndRendering();
+	for (uint32_t slice = 0; slice < count; slice++) {
+		const auto predicates = m_dcc_clear_resolver.Detect(
+		    command.Handle(), buffer->Handle(), buffer_offset + slice_size * (first + slice),
+		    slice_size, std::span<const uint8_t>(codes.data(), code_count));
+		std::scoped_lock lock {m_lock};
+		ClearColorIfPredicate(command, id, view.format,
+		                      {vk::ImageAspectFlagBits::eColor, view.base_level, view.level_count,
+		                       image_first + slice, 1},
+		                      std::span<const vk::ClearColorValue>(clears.data(), code_count),
+		                      predicates);
+	}
+	return true;
+}
+
+void TextureCache::ClearColorIfPredicate(CommandBuffer& command, ImageId id, vk::Format format,
+                                         const vk::ImageSubresourceRange&     range,
+                                         std::span<const vk::ClearColorValue> clears,
+                                         const DccClearResolver::Predicates&  predicates) {
+	auto&      image  = m_slot_images[id];
+	const auto layers = image.backing.layers;
+	EXIT_IF(command.IsInvalid() || image.depth_id || image.info.IsVolume() ||
+	        range.aspectMask != vk::ImageAspectFlagBits::eColor || range.levelCount != 1 ||
+	        range.baseMipLevel >= image.info.resources.levels || range.layerCount == 0 ||
+	        range.baseArrayLayer >= layers || range.layerCount > layers - range.baseArrayLayer);
+	TrackImage(id);
+	// Whether or not a clear fires, the image is GPU-owned afterwards, so it must already hold
+	// the guest contents the skipped clear would have left in place.
+	if (image.IsBufferModified() || image.IsCpuDirty()) {
+		InitializeImage(id);
+		if (image.IsBufferModified() || image.IsCpuDirty()) {
+			EXIT("TextureCache: conditional clear retained guest ownership\n");
+		}
+	}
+	command.EndRendering();
+	ImageViewInfo view {};
+	view.format      = format;
+	view.type        = range.layerCount == 1 ? vk::ImageViewType::e2D : vk::ImageViewType::e2DArray;
+	view.base_level  = range.baseMipLevel;
+	view.base_layer  = range.baseArrayLayer;
+	view.layer_count = range.layerCount;
+	view.usage       = vk::ImageUsageFlagBits::eColorAttachment;
+	image.Transit(vk::ImageLayout::eColorAttachmentOptimal,
+	              vk::AccessFlagBits2::eColorAttachmentRead |
+	                  vk::AccessFlagBits2::eColorAttachmentWrite,
+	              {}, command.Handle());
+	vk::RenderingAttachmentInfo attachment {};
+	attachment.imageView   = image.FindView(view);
+	attachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+	// Attachment load ops ignore conditional rendering; vkCmdClearAttachments honours it.
+	attachment.loadOp  = vk::AttachmentLoadOp::eLoad;
+	attachment.storeOp = vk::AttachmentStoreOp::eStore;
+	vk::RenderingInfo rendering {};
+	rendering.renderArea.extent    = {std::max(image.info.extent.width >> range.baseMipLevel, 1u),
+	                                  std::max(image.info.extent.height >> range.baseMipLevel, 1u)};
+	rendering.layerCount           = range.layerCount;
+	rendering.colorAttachmentCount = 1;
+	rendering.pColorAttachments    = &attachment;
+	const auto native              = command.Handle();
+	native.beginRendering(&rendering);
+	for (size_t k = 0; k < clears.size(); k++) {
+		vk::ConditionalRenderingBeginInfoEXT conditional {};
+		conditional.buffer = predicates.buffer;
+		conditional.offset = predicates.offset + 4 * k;
+		native.beginConditionalRenderingEXT(&conditional);
+		vk::ClearAttachment clear {};
+		clear.aspectMask       = vk::ImageAspectFlagBits::eColor;
+		clear.colorAttachment  = 0;
+		clear.clearValue.color = clears[k];
+		const vk::ClearRect rect {rendering.renderArea, 0, range.layerCount};
+		native.clearAttachments(1, &clear, 1, &rect);
+		native.endConditionalRenderingEXT();
+	}
+	native.endRendering();
+	CommitGpuWrite(image);
 }
 
 void TextureCache::RefreshImage(ImageId id) {

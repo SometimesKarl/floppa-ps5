@@ -7,12 +7,14 @@
 #include "common/slotVector.h"
 #include "graphics/host_gpu/pageManager.h"
 #include "graphics/host_gpu/regionManager.h"
+#include "graphics/host_gpu/renderer/cache/dccClearResolver.h"
 #include "graphics/host_gpu/renderer/cache/multiLevelPageTable.h"
 #include "graphics/host_gpu/renderer/image/blitHelper.h"
 #include "graphics/host_gpu/renderer/image/image.h"
 #include "graphics/host_gpu/renderer/image/tiler.h"
 
 #include <map>
+#include <span>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -141,6 +143,9 @@ private:
 	void                        RefreshImage(ImageId id);
 	void                        MaterializeDccClear(ImageId id, const ImageDesc& desc,
 	                                                uint32_t metadata_base_layer);
+	[[nodiscard]] bool          MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc,
+	                                                     uint32_t first, uint32_t image_first,
+	                                                     uint32_t count, uint32_t layers);
 	void                        InitializeImage(ImageId id);
 	[[nodiscard]] TextureTransfer
 	BuildTextureTransfer(const Image& image, BindingType binding, TransferDirection direction) const;
@@ -153,6 +158,12 @@ private:
 	// Caller holds m_lock. Volume layer ranges select depth slices.
 	void ClearImage(CommandBuffer& command, ImageId id, vk::Format format,
 	                const vk::ImageSubresourceRange& range, const vk::ClearValue& clear);
+	// Caller holds m_lock. Clears one color level to clears[k] when predicate k is nonzero;
+	// at most one predicate may be set.
+	void ClearColorIfPredicate(CommandBuffer& command, ImageId id, vk::Format format,
+	                           const vk::ImageSubresourceRange&     range,
+	                           std::span<const vk::ClearColorValue> clears,
+	                           const DccClearResolver::Predicates&  predicates);
 	void PrepareImageCopy(Image& image);
 	void RefreshCopySource(ImageId id);
 	[[nodiscard]] bool CopyD16(Image& destination, Image& source);
@@ -171,6 +182,7 @@ private:
 	BlitHelper                                        m_blit_helper;
 	TileManager                                       m_tiler;
 	BufferCache&                                      m_buffer_cache;
+	DccClearResolver                                  m_dcc_clear_resolver;
 	Common::SlotVector<Image>                         m_slot_images;
 	ImagePageTable                                    m_image_page_table;
 	std::unordered_map<vk::Format, ImageId>           m_null_images;
