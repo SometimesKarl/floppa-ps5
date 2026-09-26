@@ -129,6 +129,10 @@ void GuestGpu::SendCommand(Common::UniqueFunction<void>&& command) {
 
 void GuestGpu::ProcessCommands() {
 	EXIT_IF(!IsGpuThread());
+	if (m_pending_commands.load(std::memory_order_acquire) == 0) {
+		return;
+	}
+	KYTY_PROFILER_BLOCK("GuestGpu::ProcessCommands (work from other threads)");
 	while (m_pending_commands.load(std::memory_order_acquire) != 0) {
 		Common::UniqueFunction<void> command;
 		{
