@@ -322,7 +322,28 @@ bool StreamBuffer::WaitPendingOperations(const std::vector<Watch>& watches,
 		if (!Scheduler().IsFree(watch.tick) && !allow_wait) {
 			return false;
 		}
-		Scheduler().Wait(watch.tick);
+		switch (Usage()) {
+			case MemoryUsage::Upload: {
+				KYTY_PROFILER_BLOCK("StreamBuffer reuse wait: Upload");
+				Scheduler().Wait(watch.tick);
+				break;
+			}
+			case MemoryUsage::Stream: {
+				KYTY_PROFILER_BLOCK("StreamBuffer reuse wait: Stream");
+				Scheduler().Wait(watch.tick);
+				break;
+			}
+			case MemoryUsage::Download: {
+				KYTY_PROFILER_BLOCK("StreamBuffer reuse wait: Download");
+				Scheduler().Wait(watch.tick);
+				break;
+			}
+			default: {
+				KYTY_PROFILER_BLOCK("StreamBuffer reuse wait: DeviceLocal");
+				Scheduler().Wait(watch.tick);
+				break;
+			}
+		}
 		if (Usage() == MemoryUsage::Download) {
 			Scheduler().WaitPriorityOperations(watch.tick);
 		}

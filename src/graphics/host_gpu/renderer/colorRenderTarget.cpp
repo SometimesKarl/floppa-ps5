@@ -356,8 +356,12 @@ void RenderExecutor::ResolveRenderColorTarget(CommandBuffer& buffer, RenderColor
 	r.desc                     = std::move(desc);
 	r.guest_mip_level          = rt.view.current_mip_level;
 	r.guest_array_layer        = view.base_layer;
-	r.image_id                 = texture_cache.FindImage(r.desc, exact_format);
-	r.export_mapping           = target_format.export_mapping;
+	{
+		KYTY_PROFILER_BLOCK("ResolveRenderColorTarget: FindImage");
+		r.image_id = texture_cache.FindImage(r.desc, exact_format);
+	}
+	r.export_mapping = target_format.export_mapping;
+	KYTY_PROFILER_BLOCK("ResolveRenderColorTarget: BindRenderTarget");
 	BindRenderTarget(r.image_id);
 }
 
