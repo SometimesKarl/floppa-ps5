@@ -20,7 +20,12 @@
 #include <atomic>
 #include <bit>
 #include <cstdio>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <map>
+#include <mutex>
+#include <tuple>
 #include <vector>
 
 #define KYTY_HW_CTX_PARSER_ARGS                                                                    \
@@ -53,6 +58,48 @@
 namespace Libs::Graphics {
 
 namespace {
+
+// KYTY_SYNC_INVENTORY=1: counts the synchronization packets the game issues, keyed by their
+// cache, range and event fields, and prints the totals every 30 s. Diagnostics for narrowing
+// barriers: which guest dependencies exist, how often, and with which cache actions.
+class SyncInventory {
+public:
+	static bool Enabled() {
+		static const bool enabled = std::getenv("KYTY_SYNC_INVENTORY") != nullptr;
+		return enabled;
+	}
+
+	static void Note(const char* kind, uint32_t a, uint32_t b = 0, uint32_t c = 0) {
+		static SyncInventory inventory;
+		inventory.Add(kind, a, b, c);
+	}
+
+private:
+	using Key = std::tuple<const char*, uint32_t, uint32_t, uint32_t>;
+
+	void Add(const char* kind, uint32_t a, uint32_t b, uint32_t c) {
+		std::lock_guard lock(m_mutex);
+		m_counts[Key {kind, a, b, c}]++;
+		const auto now = std::chrono::steady_clock::now();
+		if (now - m_last < std::chrono::seconds(30)) {
+			return;
+		}
+		const auto seconds = std::chrono::duration<double>(now - m_start).count();
+		m_last             = now;
+		std::printf("Sync inventory after %.0f s (kind: fields -> count):\n", seconds);
+		for (const auto& [key, count]: m_counts) {
+			std::printf("  %-16s a=0x%08x b=0x%08x c=0x%08x -> %llu\n", std::get<0>(key),
+			            std::get<1>(key), std::get<2>(key), std::get<3>(key),
+			            static_cast<unsigned long long>(count));
+		}
+		std::fflush(stdout);
+	}
+
+	std::mutex                            m_mutex;
+	std::map<Key, uint64_t>               m_counts;
+	std::chrono::steady_clock::time_point m_start = std::chrono::steady_clock::now();
+	std::chrono::steady_clock::time_point m_last  = m_start;
+};
 
 constexpr uint32_t GcrGl2MetadataInvalidate = 1u << 1u;
 constexpr uint32_t GcrGl0VectorInvalidate   = 1u << 2u;
@@ -1306,6 +1353,13 @@ KYTY_CP_OP_PARSER(CpOpAcquireMem) {
 	KYTY_PROFILER_FUNCTION();
 
 	EXIT_NOT_IMPLEMENTED(cmd_id != 0xC0055800 && cmd_id != 0xc0061050);
+	if (SyncInventory::Enabled()) {
+		// a: packet, b: first payload dword (COHER_CNTL / engine), c: last payload dword
+		// (GCR_CNTL on the 7-dword form) with bit 31 set when the range is not the full space.
+		const uint32_t last  = cmd_id == 0xc0061050 ? buffer[6] : buffer[5];
+		const bool     full  = buffer[1] == 0xffffffffu || (buffer[1] == 0 && buffer[2] == 0);
+		SyncInventory::Note("ACQUIRE_MEM", cmd_id, buffer[0], (last & 0x7fffffffu) | (full ? 0u : 0x80000000u));
+	}
 	return (cmd_id == 0xc0061050 ? 7 : 6);
 }
 
@@ -1377,6 +1431,9 @@ KYTY_CP_OP_PARSER(CpOpPfpSyncMe) {
 	KYTY_PROFILER_FUNCTION();
 
 	EXIT_NOT_IMPLEMENTED(cmd_id != 0xc0004200);
+	if (SyncInventory::Enabled()) {
+		SyncInventory::Note("PFP_SYNC_ME", 0);
+	}
 
 	return 1;
 }
@@ -1586,6 +1643,10 @@ KYTY_CP_OP_PARSER(CpOpDmaData) {
 	const uint8_t  wait_previous = static_cast<uint8_t>((control2 >> 30u) & 0x1u);
 	const uint8_t  write_confirm = static_cast<uint8_t>((control2 >> 31u) & 0x1u);
 	const uint32_t num_bytes     = control2 & 0x03ffffffu;
+	if (SyncInventory::Enabled()) {
+		SyncInventory::Note("DMA_DATA", src_sel | (dst_sel << 4u), wait_previous | (write_confirm << 1u),
+		                    num_bytes >= 65536u ? 65536u : num_bytes);
+	}
 
 	cp.DmaData(engine, dst_sel, dst_cache_policy, dst, src_sel, src_cache_policy, src, num_bytes,
 	           wait_previous, write_confirm, block_engine);
@@ -1760,6 +1821,9 @@ KYTY_CP_OP_PARSER(CpOpEventWrite) {
 	if (event_type == 0x39u) {
 		EXIT_NOT_IMPLEMENTED(packet_size_dw != 4u);
 		event_address = buffer[1] | (static_cast<uint64_t>(buffer[2]) << 32u);
+	}
+	if (SyncInventory::Enabled()) {
+		SyncInventory::Note("EVENT_WRITE", event_type, event_index);
 	}
 
 	cp.TriggerEvent(event_type, event_index, event_address);
@@ -2262,6 +2326,10 @@ KYTY_CP_OP_PARSER(CpOpReleaseMem) {
 	                     data_sel != 5);
 
 	LogUnknownReleaseMemGcr(gcr_cntl);
+	if (SyncInventory::Enabled()) {
+		SyncInventory::Note("RELEASE_MEM", eop_event_type, gcr_cntl,
+		                    data_sel | (interrupt_selector << 4u) | (release_dst << 8u));
+	}
 
 	const bool gl2_writeback = ((gcr_cntl & GcrGl2Writeback) != 0);
 
@@ -2566,6 +2634,10 @@ static uint32_t CpOpWaitRegMemSized(CommandProcessor& cp, uint32_t cmd_id, const
 	auto  poll = buffer[3u + value_dw * 2u];
 
 	EXIT_NOT_IMPLEMENTED((ctrl & 0x10u) == 0);
+	if (SyncInventory::Enabled()) {
+		SyncInventory::Note(sizeof(T) == sizeof(uint32_t) ? "WAIT_REG_MEM" : "WAIT_REG_MEM64",
+		                    ctrl, poll);
+	}
 
 	cp.WaitRegMem(ctrl & 0x7u, addr, ref, mask, poll, CpOpWaitRegMemWaitOp<T>(ctrl));
 
