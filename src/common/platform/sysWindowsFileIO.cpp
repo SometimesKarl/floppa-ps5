@@ -14,6 +14,8 @@
 #include "common/stringUtils.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -64,6 +66,14 @@ static DWORD GetCacheAccessType(sys_file_cache_type_t t) {
 	return FILE_ATTRIBUTE_NORMAL;
 }
 
+static void LogProtectedGuestTransfer(const char* operation) {
+	static std::atomic<uint32_t> count {0};
+	if (count.fetch_add(1, std::memory_order_relaxed) < 8) {
+		std::printf("File %s hit protected guest memory; retrying through a host buffer\n",
+		            operation);
+	}
+}
+
 void SysFileRead(void* data, uint32_t size, sys_file_t& f, uint32_t* bytes_read) {
 	if (f.type == SYS_FILE_FILE) {
 		DWORD         w = 0;
@@ -79,6 +89,7 @@ void SysFileRead(void* data, uint32_t size, sys_file_t& f, uint32_t* bytes_read)
 			// Read into a host buffer instead and copy from user mode, where the fault handler
 			// can unprotect the pages, like the AMPR read path does.
 			if (error == ERROR_NOACCESS || error == ERROR_INVALID_USER_BUFFER) {
+				LogProtectedGuestTransfer("read");
 				SetFilePointerEx(f.handle, start, nullptr, FILE_BEGIN);
 				w = 0;
 				thread_local std::vector<uint8_t> chunk(1u << 20u);
@@ -131,8 +142,36 @@ void SysFileRead(void* data, uint32_t size, sys_file_t& f, uint32_t* bytes_read)
 
 void SysFileWrite(const void* data, uint32_t size, sys_file_t& f, uint32_t* bytes_written) {
 	if (f.type == SYS_FILE_FILE) {
-		DWORD w = 0;
-		WriteFile(f.handle, data, size, &w, nullptr);
+		DWORD         w = 0;
+		LARGE_INTEGER zero {};
+		LARGE_INTEGER start {};
+		SetFilePointerEx(f.handle, zero, &start, FILE_CURRENT);
+		if (WriteFile(f.handle, data, size, &w, nullptr) == FALSE) {
+			const DWORD error = GetLastError();
+			// The mirror of the read case: the source can be guest memory that the GPU caches
+			// read-protect after GPU writes, which the kernel cannot fault in. Copy it through a
+			// host buffer from user mode, where the fault handler brings the GPU data back first.
+			if (error == ERROR_NOACCESS || error == ERROR_INVALID_USER_BUFFER) {
+				LogProtectedGuestTransfer("write");
+				LARGE_INTEGER now {};
+				SetFilePointerEx(f.handle, zero, &now, FILE_CURRENT);
+				w = now.QuadPart > start.QuadPart
+				        ? static_cast<DWORD>(std::min<LONGLONG>(now.QuadPart - start.QuadPart, size))
+				        : 0;
+				thread_local std::vector<uint8_t> chunk(1u << 20u);
+				while (w < size) {
+					const DWORD request =
+					    std::min<DWORD>(size - w, static_cast<DWORD>(chunk.size()));
+					std::memcpy(chunk.data(), static_cast<const uint8_t*>(data) + w, request);
+					DWORD put = 0;
+					if (WriteFile(f.handle, chunk.data(), request, &put, nullptr) == FALSE ||
+					    put == 0) {
+						break;
+					}
+					w += put;
+				}
+			}
+		}
 		if (bytes_written != nullptr) {
 			*bytes_written = w;
 		}
