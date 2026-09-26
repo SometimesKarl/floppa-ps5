@@ -91,6 +91,8 @@ private:
 		uint64_t tick      = 0;
 		bool     written   = false;
 		bool     published = false;
+		// GPU-written bytes the download carries; guest memory holds them only once published.
+		std::vector<std::pair<uint64_t, uint64_t>> ranges;
 	};
 
 	friend struct BufferCacheTestAccess;

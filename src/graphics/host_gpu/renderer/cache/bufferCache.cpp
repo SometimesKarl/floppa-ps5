@@ -301,6 +301,10 @@ bool BufferCache::ReadMemoryAsync(uint64_t vaddr, uint64_t size) {
 		pending.begin = std::max(Common::AlignDown(vaddr, WindowSize), buffer_begin);
 		pending.end = std::min(std::max(pending.begin + WindowSize, vaddr + size), buffer_end);
 
+		m_gpu_modified_ranges.ForEachInRange(pending.begin, pending.end - pending.begin,
+		                                     [&](uint64_t start, uint64_t end) {
+			                                     pending.ranges.emplace_back(start, end);
+		                                     });
 		if (DownloadBufferMemory(buffer, pending.begin, pending.end - pending.begin)) {
 			pending.tick = m_scheduler.CurrentTick();
 			m_scheduler.Flush();
@@ -694,10 +698,17 @@ bool BufferCache::HasGpuDirtyBytes(uint64_t vaddr, uint64_t size) {
 	KYTY_PROFILER_FUNCTION();
 	// An asynchronous read-back takes its bytes out of the dirty set when it is recorded, but
 	// they reach guest memory only when its write-back runs. Until then the backing is stale.
+	// Only those bytes count: a window-wide check would block clean data next to them, such as
+	// shader code sharing a page with a GPU-written counter.
 	const auto end = vaddr + size;
 	for (const auto& pending: m_pending_readbacks) {
-		if (!pending.published && pending.begin < end && vaddr < pending.end) {
-			return true;
+		if (pending.published || !(pending.begin < end && vaddr < pending.end)) {
+			continue;
+		}
+		for (const auto& [range_begin, range_end]: pending.ranges) {
+			if (range_begin < end && vaddr < range_end) {
+				return true;
+			}
 		}
 	}
 	return m_gpu_modified_ranges.Intersects(vaddr, size);
