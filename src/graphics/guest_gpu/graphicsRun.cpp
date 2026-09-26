@@ -978,7 +978,8 @@ void CommandProcessor::DrawIndirect(uint32_t data_offset, uint32_t draw_initiato
 	constexpr uint32_t MaxBoundIndices = 1u << 26u;
 	if (m_index_buffer_size != 0 && m_index_buffer_size <= MaxBoundIndices &&
 	    m_index_base_addr != 0 &&
-	    executor.CanDrawIndexFromGpuArgs(CurrentBuffer(), gpu_args, m_index_type_and_size)) {
+	    executor.CanDrawIndexFromGpuArgs(CurrentBuffer(), gpu_args, m_index_type_and_size,
+	                                     m_index_buffer_size)) {
 		m_indirect_instances_addr = gpu_args + offsetof(DrawIndexedIndirectArgs, instance_count);
 		executor.DrawIndex(m_submit_id, CurrentBuffer(),
 		                   {.index_count         = m_index_buffer_size,

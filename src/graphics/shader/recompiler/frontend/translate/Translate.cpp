@@ -1098,13 +1098,49 @@ IR::Program TranslateProgram(const Decoder::Program& decoded, const CFG::Graph& 
 			EXIT_NOT_IMPLEMENTED(mesh.primitives_per_group == 0u || mesh.vertices_per_group > 64u ||
 			                     total_threads > 15u * options.wave_size);
 			const auto u32  = [](uint32_t value) { return IR::U32(IR::Value(value)); };
-			const auto draw = [&](uint32_t index) {
+			const auto push = [&](uint32_t index) {
 				return IR::U32(
 				    entry_ir.Emit(IR::ValueOpcode::MeshDrawParameter, {IR::Value(index)}));
 			};
 			const auto minimum = [&](IR::U32 lhs, IR::U32 rhs) {
 				return IR::U32(entry_ir.Emit(IR::ValueOpcode::UMin32, {lhs, rhs}));
 			};
+			// Bit 31 of word 3 marks a DRAW_INDEX_INDIRECT whose arguments earlier GPU work
+			// wrote: words 4-5 then address them in guest memory, words 1-2 hold the index
+			// buffer base and word 0 its INDEX_BUFFER_SIZE bound. The CPU never reads them.
+			const auto indirect =
+			    entry_ir.INotEqual(entry_ir.BitwiseAnd(push(3), u32(0x80000000u)), u32(0u));
+			const auto index_size = IR::U32(entry_ir.BitwiseAnd(push(3), u32(0x7fffffffu)));
+			const auto args_resource = entry_ir.Emit(
+			    IR::ValueOpcode::GetAddressResource,
+			    {entry_ir.BitwiseAnd(push(4), u32(~3u)), push(5)});
+			const auto args_memory = static_cast<uint32_t>(result.memory_info.size());
+			result.memory_info.push_back({.kind = IR::ResourceKind::Global});
+			const auto arg = [&](uint32_t word) {
+				return IR::U32(entry_ir.Emit(IR::ValueOpcode::LoadAddressU32,
+				                             {args_resource, u32(word * 4u), u32(0), indirect},
+				                             IR::MemoryFlags {.index = args_memory}));
+			};
+			// GPU arguments: the index count is limited to the bound past the first index, so the
+			// 32-bit index address arithmetic below cannot overflow (the bound is at most 65536).
+			const auto first_index = minimum(arg(2), push(0));
+			const auto gpu_index_base = push(1);
+			const auto gpu_index_low =
+			    IR::U32(entry_ir.IAdd(gpu_index_base, entry_ir.IMul(first_index, index_size)));
+			const auto gpu_index_high = IR::U32(entry_ir.IAdd(
+			    push(2), IR::U32(entry_ir.Select(entry_ir.ULessThan(gpu_index_low, gpu_index_base), u32(1),
+			                                     u32(0)))));
+			const std::array<IR::U32, 7> parameters {
+			    IR::U32(entry_ir.Select(indirect, minimum(arg(0), entry_ir.ISub(push(0), first_index)),
+			                            push(0))),
+			    IR::U32(entry_ir.Select(indirect, arg(3), push(1))),
+			    IR::U32(entry_ir.Select(indirect, arg(4), push(2))),
+			    index_size,
+			    IR::U32(entry_ir.Select(indirect, gpu_index_low, push(4))),
+			    IR::U32(entry_ir.Select(indirect, gpu_index_high, push(5))),
+			    IR::U32(entry_ir.Select(indirect, u32(0), push(6))),
+			};
+			const auto draw = [&](uint32_t index) { return parameters[index]; };
 			const auto subtract_saturate = [&](IR::U32 lhs, IR::U32 rhs) {
 				return entry_ir.ISub(lhs, minimum(lhs, rhs));
 			};

@@ -4,12 +4,14 @@
 #include "common/abi.h"
 #include "common/assert.h"
 #include "common/common.h"
+#include "graphics/host_gpu/renderer/meshIndirect.h"
 #include "graphics/host_gpu/renderer/pipeline/descriptors.h"
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
 #include "graphics/host_gpu/renderer/renderTarget.h"
 #include "graphics/host_gpu/vulkanCommon.h"
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -180,7 +182,10 @@ private:
 	// arguments on the GPU.
 	[[nodiscard]] bool CanDrawAutoFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr) const;
 	[[nodiscard]] bool CanDrawIndexFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr,
-	                                           uint32_t index_type_and_size) const;
+	                                           uint32_t index_type_and_size,
+	                                           uint32_t index_buffer_size) const;
+	[[nodiscard]] bool GpuArgsUsable(const CommandBuffer& buffer, uint64_t args_addr) const;
+	[[nodiscard]] MeshIndirectBuilder* MeshIndirect() const;
 
 	struct GraphicsBindings {
 		std::array<PreparedBindings, 3> vertex;
@@ -227,6 +232,8 @@ private:
 	std::vector<vk::DescriptorImageInfo>  m_descriptor_images;
 	std::vector<vk::WriteDescriptorSet>   m_descriptor_writes;
 	std::vector<uint32_t>                 m_image_occurrences;
+	// Builds mesh-draw commands from GPU-written guest arguments; created on first use.
+	mutable std::unique_ptr<MeshIndirectBuilder> m_mesh_indirect;
 
 	friend class CommandProcessor;
 	friend struct RenderExecutorTestAccess;

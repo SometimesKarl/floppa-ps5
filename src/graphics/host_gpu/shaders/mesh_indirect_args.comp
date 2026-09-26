@@ -1,0 +1,43 @@
+#version 450
+
+// Builds a VkDrawMeshTasksIndirectCommandEXT for a guest DRAW_INDEX_INDIRECT that runs as a host
+// mesh draw, when earlier GPU work wrote the guest arguments, so the CPU never waits to read them.
+// X (groups) is the CPU's bound from INDEX_BUFFER_SIZE; the mesh shader drops groups past the
+// guest's index count. Y is the guest instance count clamped to the host limits, and zero for an
+// empty draw. A clamp sets status[0]; the CPU then keeps these draws on its own path, which can
+// split an oversized grid.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer args_buf {
+    uint args[];
+};
+
+layout(std430, binding = 1) writeonly buffer command_buf {
+    uint command[];
+};
+
+layout(std430, binding = 2) buffer status_buf {
+    uint status[];
+};
+
+layout(push_constant) uniform Params {
+    uint args_dword;    // guest {index count, instance count, first index, ...} within binding 0
+    uint command_dword; // command slot within binding 1
+    uint groups;
+    uint bound;         // INDEX_BUFFER_SIZE
+    uint max_instances; // min(maxMeshWorkGroupCount[1], maxMeshWorkGroupTotalCount / groups)
+} params;
+
+void main() {
+    const uint count     = args[params.args_dword + 0u];
+    const uint instances = args[params.args_dword + 1u];
+    const uint first     = args[params.args_dword + 2u];
+    const bool empty     = count == 0u || instances == 0u || first >= params.bound;
+    command[params.command_dword + 0u] = empty ? 0u : params.groups;
+    command[params.command_dword + 1u] = empty ? 0u : min(instances, params.max_instances);
+    command[params.command_dword + 2u] = 1u;
+    if (!empty && instances > params.max_instances) {
+        status[0] = 1u;
+    }
+}
