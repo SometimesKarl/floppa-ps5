@@ -333,7 +333,7 @@ static void TriggerVideoOutEvent(EventQueue::KernelEqueueEvent* event, void* tri
 	    triggered_event.fflags < 0xfu ? triggered_event.fflags + 1u : triggered_event.fflags;
 	triggered_event.data = MakeVideoOutEventData(triggered_event.data, trigger_data);
 	if (event->triggered) {
-		event->pending_events.push_back(triggered_event);
+		EventQueue::QueuePendingEvent(event, triggered_event);
 		return;
 	}
 	event->event     = triggered_event;

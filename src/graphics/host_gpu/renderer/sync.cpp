@@ -256,7 +256,7 @@ static void InterruptEventTriggerFunc(LibKernel::EventQueue::KernelEqueueEvent* 
 	triggered_event.fflags++;
 	triggered_event.data = reinterpret_cast<intptr_t>(trigger_data);
 	if (event->triggered) {
-		event->pending_events.push_back(triggered_event);
+		LibKernel::EventQueue::QueuePendingEvent(event, triggered_event);
 	} else {
 		event->event     = triggered_event;
 		event->triggered = true;

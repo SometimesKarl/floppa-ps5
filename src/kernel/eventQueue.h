@@ -56,6 +56,13 @@ struct KernelEqueueEvent {
 	std::deque<KernelEvent> pending_events;
 };
 
+// Events whose trigger finds them still undelivered queue a copy, so each trigger reaches the
+// game separately. A game that waits less often than an event fires grew that queue without
+// bound (ASTRO BOT's graphics interrupts: about 1.5 MiB/s of queued copies in its first level).
+// Only the newest MaxPendingEvents copies are kept; the oldest are dropped.
+constexpr size_t MaxPendingEvents = 256;
+void QueuePendingEvent(KernelEqueueEvent* event, const KernelEvent& triggered);
+
 [[nodiscard]] KernelEqueueRef KernelPinEqueue(KernelEqueue eq);
 
 int KYTY_SYSV_ABI KernelAddEvent(KernelEqueue eq, const KernelEqueueEvent& event);

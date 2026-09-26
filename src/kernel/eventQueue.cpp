@@ -11,7 +11,10 @@
 #include "libs/libs.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cinttypes>
+#include <cstdio>
 #include <fmt/format.h>
 #include <limits>
 #include <list>
@@ -19,6 +22,21 @@
 #include <vector>
 
 namespace Libs::LibKernel::EventQueue {
+
+void QueuePendingEvent(KernelEqueueEvent* event, const KernelEvent& triggered) {
+	EXIT_IF(event == nullptr);
+	if (event->pending_events.size() >= MaxPendingEvents) {
+		event->pending_events.pop_front();
+		static std::atomic_bool reported = false;
+		if (!reported.exchange(true, std::memory_order_relaxed)) {
+			std::printf("Kernel event queue: event ident=%" PRIu64 " filter=%d fires faster than the "
+			            "game waits; keeping the newest %zu undelivered triggers\n",
+			            static_cast<uint64_t>(triggered.ident), static_cast<int>(triggered.filter),
+			            MaxPendingEvents);
+		}
+	}
+	event->pending_events.push_back(triggered);
+}
 
 LIB_NAME("libkernel", "libkernel");
 
