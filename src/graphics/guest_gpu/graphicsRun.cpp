@@ -6,6 +6,7 @@
 #include "common/profiler.h"
 #include "common/stringUtils.h"
 #include "common/threads.h"
+#include "common/timer.h"
 #include "graphics/guest_gpu/command_processor/commandProcessor.h"
 #include "graphics/guest_gpu/command_processor/pm4Dispatch.h"
 #include "graphics/guest_gpu/hardwareContext.h"
@@ -266,6 +267,19 @@ void CommandProcessor::BufferInit() {
 
 void CommandProcessor::BufferFlush() {
 	GetScheduler().Flush();
+	m_last_flush_counter = Common::Timer::QueryPerformanceCounter();
+	m_coalesced_flushes  = 0;
+}
+
+void CommandProcessor::BufferFlushCoalesced() {
+	// ASTRO BOT writes ~2.5 fence labels per draw; a submit each costs ~30 us of CPU and
+	// fragments GPU work. Bound the extra label latency to 1 ms or 32 deferred labels.
+	constexpr uint32_t MaxCoalescedFlushes = 32;
+	const auto         now                 = Common::Timer::QueryPerformanceCounter();
+	const auto         interval = Common::Timer::QueryPerformanceFrequency() / 1000;
+	if (++m_coalesced_flushes >= MaxCoalescedFlushes || now - m_last_flush_counter >= interval) {
+		BufferFlush();
+	}
 }
 
 void CommandProcessor::BufferFlushAndWait() {
