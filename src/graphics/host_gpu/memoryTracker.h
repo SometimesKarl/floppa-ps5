@@ -24,6 +24,11 @@ public:
 	KYTY_CLASS_NO_COPY(MemoryTracker);
 
 	[[nodiscard]] bool IsRegionCpuModified(uint64_t vaddr, uint64_t size);
+	// Advances whenever any page may have become CPU-modified. Unchanged means no tracked
+	// memory needs uploading that did not already need it at the earlier reading.
+	[[nodiscard]] uint64_t CpuDirtyGeneration() const noexcept {
+		return m_cpu_dirty_generation.load(std::memory_order_acquire);
+	}
 	[[nodiscard]] bool IsRegionGpuModified(uint64_t vaddr, uint64_t size);
 	void               MarkRegionAsCpuModified(uint64_t vaddr, uint64_t size);
 	void               MarkRegionAsGpuModified(uint64_t vaddr, uint64_t size);
@@ -49,6 +54,8 @@ public:
 			}();
 			if (should_flush) {
 				on_flush();
+			} else {
+				BumpCpuDirtyGeneration();
 			}
 		});
 	}
@@ -107,6 +114,12 @@ public:
 private:
 	static constexpr size_t REGION_COUNT = TRACKER_ADDRESS_SIZE / TRACKER_REGION_SIZE;
 	inline static thread_local const MemoryTracker* s_upload_owner = nullptr;
+
+	void BumpCpuDirtyGeneration() noexcept {
+		m_cpu_dirty_generation.fetch_add(1, std::memory_order_acq_rel);
+	}
+
+	std::atomic<uint64_t> m_cpu_dirty_generation {1};
 
 	void CheckNotInUploadCallback() const noexcept {
 		if (s_upload_owner == this) {

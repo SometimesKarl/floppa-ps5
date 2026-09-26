@@ -124,10 +124,18 @@ void RenderContext::UnmapMemory(uint64_t vaddr, uint64_t size) {
 
 void RenderContext::PrepareBda() {
 	KYTY_PROFILER_FUNCTION();
-	std::shared_lock lock(m_mapped_ranges_mutex);
-	m_mapped_ranges.ForEach([this](uint64_t start, uint64_t end) {
-		m_buffer_cache.SynchronizeBuffersInRange(start, end - start);
-	});
+	// A shader with device addresses can read any cached buffer, so every CPU write must be
+	// uploaded first. ASTRO BOT binds ~76 such shaders per frame; rescanning all mapped memory
+	// for each one is wasted when nothing has become CPU-modified since the last scan. Read the
+	// generation before scanning so writes during the scan make the next call scan again.
+	const auto generation = m_buffer_cache.CpuDirtyGeneration();
+	if (generation != m_bda_synced_generation) {
+		std::shared_lock lock(m_mapped_ranges_mutex);
+		m_mapped_ranges.ForEach([this](uint64_t start, uint64_t end) {
+			m_buffer_cache.SynchronizeBuffersInRange(start, end - start);
+		});
+		m_bda_synced_generation = generation;
+	}
 	m_fault_process_pending = true;
 }
 

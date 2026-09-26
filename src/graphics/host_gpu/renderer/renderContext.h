@@ -81,6 +81,8 @@ private:
 	std::unique_ptr<GuestGpu> m_gpu;
 	VideoOut::VideoOutDriver* m_video_out = nullptr;
 	bool                      m_fault_process_pending = false;
+	// CPU-dirty generation at the last full PrepareBda upload; 0 forces the first one.
+	uint64_t                  m_bda_synced_generation = 0;
 
 	Common::Mutex                        m_interrupt_mutex;
 	std::vector<InterruptEqRegistration> m_interrupt_eqs;
