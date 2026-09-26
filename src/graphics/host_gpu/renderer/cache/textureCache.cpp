@@ -1229,10 +1229,12 @@ bool TextureCache::MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc, u
 	std::array<uint8_t, DccClearResolver::MaxCodes>             codes {};
 	std::array<vk::ClearColorValue, DccClearResolver::MaxCodes> clears {};
 	uint32_t                                                    code_count = 0;
-	for (const uint8_t code: {uint8_t {0x00}, uint8_t {0x20}, uint8_t {0x40}, uint8_t {0x80},
-	                          uint8_t {0xc0}}) {
-		if (DecodeDccClear(desc, code, clears[code_count])) {
-			codes[code_count++] = code;
+	uint8_t                                                     code_mask  = 0;
+	const std::array<uint8_t, DccClearResolver::MaxCodes> all_codes {0x00, 0x20, 0x40, 0x80, 0xc0};
+	for (uint32_t index = 0; index < all_codes.size(); index++) {
+		if (DecodeDccClear(desc, all_codes[index], clears[code_count])) {
+			codes[code_count++] = all_codes[index];
+			code_mask |= static_cast<uint8_t>(1u << index);
 		}
 	}
 	if (code_count == 0) {
@@ -1241,11 +1243,26 @@ bool TextureCache::MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc, u
 	}
 	const auto range      = desc.info.metadata.range;
 	const auto slice_size = range.size / layers;
+	const auto generation = m_buffer_cache.WatchGpuWrites(range.address, range.size);
+	{
+		std::scoped_lock lock {m_lock};
+		bool             tested = true;
+		for (uint32_t slice = 0; slice < count && tested; slice++) {
+			const auto it = m_dcc_checks.find(range.address + slice_size * (first + slice));
+			tested = it != m_dcc_checks.end() && it->second.generation == generation &&
+			         (code_mask & ~it->second.tested_codes) == 0;
+		}
+		if (tested) {
+			return true;
+		}
+	}
 	auto [buffer, buffer_offset] = m_buffer_cache.ObtainBuffer(range.address, range.size, true);
 	const auto alignment         = m_dcc_clear_resolver.StorageAlignment();
 	if (buffer_offset % alignment != 0 || slice_size % alignment != 0) {
 		return false;
 	}
+	// ObtainBuffer recorded this detection's own metadata write; later guest writes advance it.
+	const auto tested_generation = m_buffer_cache.WatchGpuWrites(range.address, range.size);
 	auto&       command = m_scheduler.Current();
 	const auto& view    = desc.view_info;
 	command.EndRendering();
@@ -1259,6 +1276,10 @@ bool TextureCache::MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc, u
 		                       image_first + slice, 1},
 		                      std::span<const vk::ClearColorValue>(clears.data(), code_count),
 		                      predicates);
+		auto& check = m_dcc_checks[range.address + slice_size * (first + slice)];
+		check.tested_codes =
+		    static_cast<uint8_t>((check.generation == generation ? check.tested_codes : 0) | code_mask);
+		check.generation = tested_generation;
 	}
 	return true;
 }

@@ -464,6 +464,7 @@ std::pair<Buffer*, uint64_t> BufferCache::ObtainBuffer(uint64_t vaddr, uint64_t 
 	(void)SynchronizeBuffer(buffer, vaddr, size, is_written, is_texel_buffer);
 	if (is_written) {
 		m_gpu_modified_ranges.Add(vaddr, size);
+		BumpWatchedWrites(vaddr, size);
 	}
 	return {&buffer, buffer.Offset(vaddr)};
 }
@@ -566,6 +567,32 @@ bool BufferCache::IsRegionRegistered(uint64_t vaddr, uint64_t size) {
 	}
 	const auto& [address, id] = *std::prev(candidate);
 	return address + m_slot_buffers[id].Size() > vaddr;
+}
+
+uint64_t BufferCache::WatchGpuWrites(uint64_t vaddr, uint64_t size) {
+	auto [it, inserted] = m_write_watches.try_emplace(vaddr);
+	if (inserted || it->second.end < vaddr + size) {
+		// A new or grown watch has not seen earlier writes; start it at a fresh generation.
+		it->second.end        = std::max(it->second.end, vaddr + size);
+		it->second.generation = ++m_write_watch_generation;
+		m_write_watch_max_size = std::max(m_write_watch_max_size, it->second.end - vaddr);
+	}
+	return it->second.generation;
+}
+
+void BufferCache::BumpWatchedWrites(uint64_t vaddr, uint64_t size) {
+	if (m_write_watches.empty()) {
+		return;
+	}
+	const auto end = vaddr + size;
+	// Watches start below `end`; only those starting within max_size of vaddr can reach it.
+	const auto lowest = vaddr > m_write_watch_max_size ? vaddr - m_write_watch_max_size : 0;
+	for (auto it = m_write_watches.lower_bound(lowest);
+	     it != m_write_watches.end() && it->first < end; ++it) {
+		if (it->second.end > vaddr) {
+			it->second.generation = ++m_write_watch_generation;
+		}
+	}
 }
 
 bool BufferCache::IsRegionGpuModified(uint64_t vaddr, uint64_t size) {

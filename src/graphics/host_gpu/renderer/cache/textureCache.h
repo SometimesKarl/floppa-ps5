@@ -189,6 +189,14 @@ private:
 	Common::LeastRecentlyUsedCache<ImageId, uint64_t> m_lru_cache;
 	std::unordered_set<ImageId>                       m_download_images;
 	std::map<uint64_t, MetaDataInfo>                  m_surface_metas;
+	// Per DCC metadata slice: the watched write generation when last tested on the GPU and the
+	// clear codes tested since then. Until a guest write, a tested slice either did not match
+	// those codes or was already expanded, so testing it again cannot find a clear.
+	struct DccCheck {
+		uint64_t generation   = 0;
+		uint8_t  tested_codes = 0;
+	};
+	std::unordered_map<uint64_t, DccCheck>            m_dcc_checks;
 	uint64_t                                          m_total_used_memory  = 0;
 	uint64_t                                          m_trigger_gc_memory  = 0;
 	uint64_t                                          m_pressure_gc_memory = 1536ull * 1024 * 1024;

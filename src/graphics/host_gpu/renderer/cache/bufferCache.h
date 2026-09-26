@@ -70,8 +70,18 @@ public:
 	void               ProcessFaultBuffer();
 	void               SynchronizeBuffersInRange(uint64_t vaddr, uint64_t size);
 	void               RunGarbageCollector();
+	// Registers [vaddr, vaddr + size) for write tracking and returns its generation, which
+	// advances whenever a GPU write is recorded over any part of it. Callers cache decisions
+	// derived from GPU-written contents (DCC fast-clear metadata) against the generation.
+	[[nodiscard]] uint64_t WatchGpuWrites(uint64_t vaddr, uint64_t size);
 
 private:
+	struct WriteWatch {
+		uint64_t end        = 0;
+		uint64_t generation = 0;
+	};
+	void BumpWatchedWrites(uint64_t vaddr, uint64_t size);
+
 	friend struct BufferCacheTestAccess;
 
 	bool IsBufferInvalid(BufferId id) const {
@@ -118,6 +128,9 @@ private:
 	BufferMap                                         m_buffers;
 	PageTable                                         m_page_table;
 	RangeSet                                          m_gpu_modified_ranges;
+	std::map<uint64_t, WriteWatch>                    m_write_watches;
+	uint64_t                                          m_write_watch_max_size   = 0;
+	uint64_t                                          m_write_watch_generation = 0;
 	MemoryTracker                                     m_memory_tracker;
 	StreamBuffer                                      m_staging_buffer;
 	StreamBuffer                                      m_stream_buffer;
