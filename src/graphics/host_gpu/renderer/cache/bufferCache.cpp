@@ -692,6 +692,14 @@ bool BufferCache::IsRegionGpuModified(uint64_t vaddr, uint64_t size) {
 
 bool BufferCache::HasGpuDirtyBytes(uint64_t vaddr, uint64_t size) {
 	KYTY_PROFILER_FUNCTION();
+	// An asynchronous read-back takes its bytes out of the dirty set when it is recorded, but
+	// they reach guest memory only when its write-back runs. Until then the backing is stale.
+	const auto end = vaddr + size;
+	for (const auto& pending: m_pending_readbacks) {
+		if (!pending.published && pending.begin < end && vaddr < pending.end) {
+			return true;
+		}
+	}
 	return m_gpu_modified_ranges.Intersects(vaddr, size);
 }
 
