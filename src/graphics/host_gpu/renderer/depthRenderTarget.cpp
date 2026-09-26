@@ -9,6 +9,7 @@
 #include "graphics/guest_gpu/gpu_defs.h"
 #include "graphics/guest_gpu/hardwareContext.h"
 #include "graphics/guest_gpu/tile.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
 #include "graphics/host_gpu/renderer/debug.h"
@@ -407,9 +408,12 @@ bool RenderExecutor::DepthStencilCopy(CommandBuffer& buffer) {
 		region.dstSubresource = region.srcSubresource;
 		region.extent = write_desc.info.extent;
 	}
-	command.copyImage(source.backing.image, vk::ImageLayout::eTransferSrcOptimal,
-	                  destination.backing.image, vk::ImageLayout::eTransferDstOptimal,
-	                  count, regions.data());
+	{
+		KYTY_GPU_ZONE(command, "GPU copy: depth target");
+		command.copyImage(source.backing.image, vk::ImageLayout::eTransferSrcOptimal,
+		                  destination.backing.image, vk::ImageLayout::eTransferDstOptimal,
+		                  count, regions.data());
+	}
 	return true;
 }
 

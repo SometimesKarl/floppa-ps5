@@ -3,6 +3,7 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "gpu_tiler_shaders/fault_buffer_process_spv.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/cache/bufferCache.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
@@ -123,7 +124,10 @@ void FaultManager::ProcessFaultBuffer() {
 	                             m_fault_process_pipeline_layout, 0, writes);
 	const auto num_threads    = BufferCache::CACHING_NUMPAGES / 32;
 	const auto num_workgroups = (num_threads + 63) / 64;
-	command.dispatch(static_cast<uint32_t>(num_workgroups), 1, 1);
+	{
+		KYTY_GPU_ZONE(command, "GPU fault buffer parse");
+		command.dispatch(static_cast<uint32_t>(num_workgroups), 1, 1);
+	}
 	dependency.pBufferMemoryBarriers = &post_barrier;
 	command.pipelineBarrier2(dependency);
 

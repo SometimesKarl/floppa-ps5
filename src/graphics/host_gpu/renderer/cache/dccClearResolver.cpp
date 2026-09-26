@@ -3,6 +3,7 @@
 #include "common/assert.h"
 #include "common/profiler.h"
 #include "gpu_tiler_shaders/dcc_clear_detect_spv.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
 #include "graphics/host_gpu/vulkanCommon.h"
@@ -128,7 +129,10 @@ DccClearResolver::Predicates DccClearResolver::Detect(vk::CommandBuffer command,
 	command.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, m_pipeline_layout, 0, writes);
 	command.pushConstants(m_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
 	                      sizeof(params), &params);
-	command.dispatch(1, 1, 1);
+	{
+		KYTY_GPU_ZONE(command, "GPU DCC clear detect");
+		command.dispatch(1, 1, 1);
+	}
 
 	vk::MemoryBarrier after {};
 	after.srcAccessMask = vk::AccessFlagBits::eShaderWrite;

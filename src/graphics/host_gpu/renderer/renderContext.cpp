@@ -4,6 +4,7 @@
 #include "common/logging/log.h"
 #include "common/profiler.h"
 #include "graphics/guest_gpu/graphicsRun.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/presentation/videoOut.h"
 #include "libs/errno.h"
 
@@ -18,11 +19,13 @@ RenderContext::RenderContext(GraphicContext& graphics)
       m_buffer_cache(graphics, m_command_scheduler, m_page_manager, m_texture_cache),
       m_texture_cache(graphics, m_command_scheduler, m_page_manager, m_buffer_cache) {
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
+	GpuProfiler::Initialize(graphics);
 }
 
 RenderContext::~RenderContext() {
 	ShutdownGpu();
 	m_command_scheduler.Shutdown();
+	GpuProfiler::Shutdown();
 }
 
 void RenderContext::InitializeGpu(VideoOut::VideoOutDriver* video_out) {

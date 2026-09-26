@@ -14,6 +14,7 @@
 #include "gpu_tiler_shaders/gpu_tiler_standard64_3d_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_standard64_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_swap_bgra16_spv.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/cache/streamBuffer.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
@@ -323,7 +324,10 @@ void TileManager::Record(vk::Buffer source, uint64_t source_offset,
 	    vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer, {}, 0,
 	    nullptr, 3, barriers, 0, nullptr);
 	if (clear_target) {
-		command.fillBuffer(target, target_offset, target_capacity, 0);
+		{
+			KYTY_GPU_ZONE(command, "GPU tiler: clear target");
+			command.fillBuffer(target, target_offset, target_capacity, 0);
+		}
 		barriers[1].srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 		barriers[1].dstAccessMask =
 		    vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
@@ -349,8 +353,11 @@ void TileManager::Record(vk::Buffer source, uint64_t source_offset,
 		command.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, m_pipeline_layout, 0,
 		                             static_cast<uint32_t>(writes.size()), writes.data());
 		command.bindPipeline(vk::PipelineBindPoint::eCompute, GetPipeline(dispatch.pipeline_slot));
-		command.dispatch((dispatch.push.width + 7u) / 8u, (dispatch.push.height + 7u) / 8u,
-		                 dispatch.push.depth);
+		{
+			KYTY_GPU_ZONE(command, "GPU tiler: render target");
+			command.dispatch((dispatch.push.width + 7u) / 8u, (dispatch.push.height + 7u) / 8u,
+			                 dispatch.push.depth);
+		}
 	}
 
 	barriers[1].srcAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -589,7 +596,10 @@ void TileManager::ConvertD16(Result source, Result target, D16Direction directio
 			push.slice_bytes = static_cast<uint32_t>(layout.target_row_stride);
 			command.pushConstants(m_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
 			                      sizeof(push), &push);
-			command.dispatch(static_cast<uint32_t>(groups_x), rows, 1);
+			{
+				KYTY_GPU_ZONE(command, "GPU tiler: texture");
+				command.dispatch(static_cast<uint32_t>(groups_x), rows, 1);
+			}
 			row += rows;
 		}
 	}
@@ -658,7 +668,10 @@ void TileManager::SwapBgra16(Result input, Result output, uint32_t pixels) {
 	push.width    = pixels;
 	command.pushConstants(m_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(push),
 	                      &push);
-	command.dispatch((pixels + 63u) / 64u, 1, 1);
+	{
+		KYTY_GPU_ZONE(command, "GPU tiler: pixel convert");
+		command.dispatch((pixels + 63u) / 64u, 1, 1);
+	}
 	barriers[1].srcAccessMask = vk::AccessFlagBits::eShaderWrite;
 	barriers[1].dstAccessMask = vk::AccessFlagBits::eTransferRead;
 	command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,

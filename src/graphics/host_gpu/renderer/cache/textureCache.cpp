@@ -7,6 +7,7 @@
 #include "common/profiler.h"
 #include "graphics/guest_gpu/gpu_format.h"
 #include "graphics/guest_gpu/tile.h"
+#include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/cache/bufferCache.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
@@ -1328,6 +1329,7 @@ void TextureCache::ClearColorIfPredicate(CommandBuffer& command, ImageId id, vk:
 	rendering.colorAttachmentCount = 1;
 	rendering.pColorAttachments    = &attachment;
 	const auto native              = command.Handle();
+	KYTY_GPU_ZONE(native, "GPU DCC conditional clear");
 	native.beginRendering(&rendering);
 	for (size_t k = 0; k < clears.size(); k++) {
 		vk::ConditionalRenderingBeginInfoEXT conditional {};
@@ -1770,8 +1772,11 @@ void TextureCache::ClearImage(CommandBuffer& command, ImageId id, vk::Format for
 		rendering.layerCount           = range.layerCount;
 		rendering.colorAttachmentCount = 1;
 		rendering.pColorAttachments    = &attachment;
-		command.Handle().beginRendering(&rendering);
-		command.Handle().endRendering();
+		{
+			KYTY_GPU_ZONE(command.Handle(), "GPU clear: aliased color");
+			command.Handle().beginRendering(&rendering);
+			command.Handle().endRendering();
+		}
 		CommitGpuWrite(image);
 		return;
 	}
@@ -1782,6 +1787,7 @@ void TextureCache::ClearImage(CommandBuffer& command, ImageId id, vk::Format for
 		native_range.baseArrayLayer = 0;
 		native_range.layerCount     = 1;
 	}
+	KYTY_GPU_ZONE(command.Handle(), "GPU clear: image");
 	if (range.aspectMask == vk::ImageAspectFlagBits::eColor) {
 		command.Handle().clearColorImage(image.backing.image, vk::ImageLayout::eTransferDstOptimal,
 		                                 &clear.color, 1, &native_range);
