@@ -15,12 +15,15 @@
 #include "graphics/shader/recompiler/frontend/decode/ShaderDecoder.h"
 #include "graphics/shader/shaderCompiler.h"
 #include "graphics/shader/shaderVertexMetadata.h"
+#include "kernel/memory.h"
 #include "libs/errno.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -90,20 +93,34 @@ static ShaderMappedData ShaderGetMappedData(uint64_t addr, const char* label) {
 	EXIT("%s shader=0x%016" PRIx64 " is missing from ShaderMap\n", label, addr);
 }
 
-static const ShaderBinaryInfo* GetBinaryInfo(const uint32_t* code) {
-	EXIT_IF(code == nullptr);
-
-	if (code[0] == 0xBEEB03FF) {
-		return reinterpret_cast<const ShaderBinaryInfo*>(code +
-		                                                 static_cast<size_t>(code[1] + 1) * 2);
+// Games keep small GPU-written buffers on the same 4 KiB page as shader code. A GPU write
+// leaves that page read-protected, and reading the unchanged code through it drains the GPU
+// queue on every bind. Read clean bytes through the backing; fault only for GPU-written ones.
+static void ReadShaderMemory(uint64_t address, void* data, uint64_t size) {
+	if (!LibKernel::Memory::TryReadGpuCleanBacking(address, data, size)) {
+		std::memcpy(data, reinterpret_cast<const void*>(address), size);
 	}
-
-	return nullptr;
 }
 
 static uint64_t GetDeclaredShaderHash(uint64_t shader_addr) {
-	const auto* header = GetBinaryInfo(reinterpret_cast<const uint32_t*>(shader_addr));
-	return header != nullptr ? (static_cast<uint64_t>(header->hash1) << 32u) | header->hash0 : 0;
+	EXIT_IF(shader_addr == 0);
+
+	std::array<uint32_t, 2> prefix {};
+	ReadShaderMemory(shader_addr, prefix.data(), sizeof(prefix));
+	if (prefix[0] != 0xBEEB03FF) {
+		return 0;
+	}
+	ShaderBinaryInfo header {};
+	ReadShaderMemory(shader_addr + (static_cast<uint64_t>(prefix[1]) + 1) * 2 * sizeof(uint32_t),
+	                 &header, sizeof(header));
+	return (static_cast<uint64_t>(header.hash1) << 32u) | header.hash0;
+}
+
+static uint64_t HashShaderCode(uint64_t shader_addr, uint64_t size) {
+	thread_local std::vector<uint8_t> bytes;
+	bytes.resize(size);
+	ReadShaderMemory(shader_addr, bytes.data(), size);
+	return XXH3_64bits(bytes.data(), bytes.size());
 }
 
 static ShaderParams GetShaderParams(uint64_t shader_addr, const char* label, uint64_t declared_hash,
@@ -120,7 +137,7 @@ static ShaderParams GetShaderParams(uint64_t shader_addr, const char* label, uin
 	    .code            = code,
 	    .user_data_count = static_cast<uint32_t>(user_data.size()) + user_data_base,
 	    .hash            = declared_hash != 0 ? declared_hash
-	                                          : XXH3_64bits(code.data(), code.size_bytes()),
+	                                          : HashShaderCode(shader_addr, code.size_bytes()),
 	};
 	EXIT_IF(user_data.size() > HW::UserSgprInfo::SGPRS_MAX ||
 	        params.user_data_count > params.user_data.size());
