@@ -68,6 +68,9 @@ struct ImageInfo {
 	uint32_t                     samples         = 1;
 	Prospero::TileMode           tile_mode       = Prospero::TileMode::kLinear;
 	bool                         bgra16          = false;
+	// Color attachments normally list only their own format and its sRGB/UNORM partner as view
+	// formats, which lets drivers keep color compression. Set when other views are needed.
+	bool                         unrestricted_view_formats = false;
 	std::array<ImageMipInfo, 16> mip_layout {};
 
 	[[nodiscard]] constexpr bool HasStencil() const noexcept { return !stencil.Empty(); }

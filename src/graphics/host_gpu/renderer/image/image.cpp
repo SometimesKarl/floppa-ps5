@@ -74,6 +74,23 @@ namespace {
 	return usage;
 }
 
+// The view format that differs from `format` only in sRGB encoding, if any.
+[[nodiscard]] vk::Format SrgbPartner(vk::Format format) noexcept {
+	switch (format) {
+		case vk::Format::eR8Unorm: return vk::Format::eR8Srgb;
+		case vk::Format::eR8Srgb: return vk::Format::eR8Unorm;
+		case vk::Format::eR8G8Unorm: return vk::Format::eR8G8Srgb;
+		case vk::Format::eR8G8Srgb: return vk::Format::eR8G8Unorm;
+		case vk::Format::eR8G8B8A8Unorm: return vk::Format::eR8G8B8A8Srgb;
+		case vk::Format::eR8G8B8A8Srgb: return vk::Format::eR8G8B8A8Unorm;
+		case vk::Format::eB8G8R8A8Unorm: return vk::Format::eB8G8R8A8Srgb;
+		case vk::Format::eB8G8R8A8Srgb: return vk::Format::eB8G8R8A8Unorm;
+		case vk::Format::eA8B8G8R8UnormPack32: return vk::Format::eA8B8G8R8SrgbPack32;
+		case vk::Format::eA8B8G8R8SrgbPack32: return vk::Format::eA8B8G8R8UnormPack32;
+		default: return vk::Format::eUndefined;
+	}
+}
+
 void ValidateOptionalRange(GuestRange range, const char* name) {
 	if (!range.ValidOrEmpty()) {
 		EXIT("invalid %s image range: address=0x%016llx size=0x%016llx\n", name,
@@ -698,6 +715,22 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	create.usage         = ImageUsageFlags(graphics, info);
 	create.samples       = vulkan_sample_count(info.samples);
 
+	// A mutable-format image without a view-format list loses color compression on AMD. Render
+	// targets are almost always viewed in their own format or its sRGB partner (measured in
+	// ASTRO BOT: +11% frame rate with the list). Other views make the texture cache recreate the
+	// image without the list (see AllowsViewFormat).
+	vk::ImageFormatListCreateInfo format_list {};
+	if (!info.unrestricted_view_formats &&
+	    (create.usage & vk::ImageUsageFlagBits::eColorAttachment) &&
+	    (create.flags & vk::ImageCreateFlagBits::eMutableFormat)) {
+		m_view_formats[0]   = create.format;
+		m_view_formats[1]   = SrgbPartner(create.format);
+		m_view_format_count = m_view_formats[1] == vk::Format::eUndefined ? 1u : 2u;
+		format_list.viewFormatCount = m_view_format_count;
+		format_list.pViewFormats    = m_view_formats.data();
+		create.pNext                = &format_list;
+	}
+
 	vk::ImageFormatProperties properties {};
 	if (graphics.GetImageFormatProperties(create.format, create.imageType, create.tiling,
 	                                      create.usage, create.flags,
@@ -721,6 +754,14 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	    info.data.address, info.data.size, info.extent.width, info.extent.height, info.extent.depth,
 	    static_cast<uint32_t>(info.pixel_format), info.resources.levels, info.resources.layers,
 	    info.samples);
+}
+
+bool Image::AllowsViewFormat(vk::Format format) const noexcept {
+	if (m_view_format_count == 0 || format == vk::Format::eUndefined) {
+		return true;
+	}
+	return std::find(m_view_formats.begin(), m_view_formats.begin() + m_view_format_count,
+	                 format) != m_view_formats.begin() + m_view_format_count;
 }
 
 uint64_t Image::HashGuestEdges() const {

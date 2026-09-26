@@ -4,6 +4,9 @@
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/image/image.h"
 
+#include <atomic>
+#include <cstdio>
+
 namespace Libs::Graphics {
 
 namespace {
@@ -328,6 +331,16 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 		}
 	}
 
+	if (!AllowsViewFormat(normalized.format)) {
+		// The texture cache normally recreates the image before this; if a view still gets here,
+		// create it and have the next lookup replace the image.
+		needs_unrestricted_views = true;
+		static std::atomic<uint32_t> log_count {0};
+		if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Image: view format %d is outside the view formats of image format %d\n",
+			            static_cast<int>(normalized.format), static_cast<int>(image.format));
+		}
+	}
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               ImageViewOps::FormatsCompatible(image.format, normalized.format);
 	const bool slice_view =

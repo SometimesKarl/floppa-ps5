@@ -7,6 +7,7 @@
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/image/imageInfo.h"
 
+#include <array>
 #include <compare>
 #include <limits>
 #include <optional>
@@ -52,6 +53,9 @@ public:
 	KYTY_CLASS_NO_COPY(Image);
 
 	[[nodiscard]] vk::ImageView FindView(const ImageViewInfo& view_info);
+	// Whether a view may use this format. Images without a view-format list allow every
+	// compatible format.
+	[[nodiscard]] bool AllowsViewFormat(vk::Format format) const noexcept;
 	using Barriers = std::vector<vk::ImageMemoryBarrier2>;
 	[[nodiscard]] Barriers GetBarriers(vk::ImageLayout                      destination_layout,
 	                                   vk::AccessFlags2                     destination_access,
@@ -150,6 +154,9 @@ public:
 	ImageId          depth_id {};
 	uint64_t         tick_accessed_last = 0;
 	size_t           lru_id             = 0;
+	// A view outside the view-format list was needed; the texture cache recreates the image
+	// without the list on its next lookup.
+	bool             needs_unrestricted_views = false;
 
 private:
 	friend struct ImageTestAccess;
@@ -160,9 +167,11 @@ private:
 	[[nodiscard]] static std::pair<uint32_t, uint32_t>
 	SanitizeCopyLayers(const Image& source, const Image& destination, uint32_t depth);
 
-	GraphicContext&   m_graphics;
-	CommandScheduler& m_scheduler;
-	uint64_t          m_maybe_cpu_hash   = 0;
+	GraphicContext&           m_graphics;
+	CommandScheduler&         m_scheduler;
+	std::array<vk::Format, 2> m_view_formats {};
+	uint32_t                  m_view_format_count = 0;
+	uint64_t                  m_maybe_cpu_hash   = 0;
 	bool              m_cpu_dirty        = false;
 	bool              m_maybe_cpu_dirty  = false;
 	bool              m_maybe_hash_valid = false;

@@ -19,8 +19,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cinttypes>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -903,6 +905,32 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId source_id) {
 	return expanded_id;
 }
 
+// A lookup needs a view format outside the image's view-format list. Replace the image with a
+// copy that allows every compatible view format; it keeps that permanently, so a guest that
+// alternates formats does not trigger repeated copies.
+ImageId TextureCache::RecreateWithUnrestrictedViews(ImageId source_id) {
+	KYTY_PROFILER_FUNCTION();
+	static std::atomic<uint32_t> log_count {0};
+	if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+		std::printf("TextureCache: recreating a format %d image for other view formats\n",
+		            static_cast<int>(m_slot_images[source_id].info.pixel_format));
+	}
+	RefreshCopySource(source_id);
+	auto info                      = m_slot_images[source_id].info;
+	info.unrestricted_view_formats = true;
+	const auto id                  = InsertImage(info);
+	auto&      image               = m_slot_images[id];
+	auto&      source              = m_slot_images[source_id];
+	image.usage                    = source.usage;
+	if (source.binding.is_bound || source.binding.is_target) {
+		source.binding.needs_rebind = true;
+	}
+	InitializeImage(id);
+	CopyImage(id, source_id);
+	FreeImage(source_id);
+	return id;
+}
+
 struct TextureCache::TextureTransfer {
 	TextureUploadLayout              layout;
 	std::vector<vk::BufferImageCopy> regions;
@@ -1453,6 +1481,10 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 			} else if (resolved.info.resources < desc.info.resources) {
 				FreeImage(result);
 				result = {};
+			} else if (resolved.needs_unrestricted_views ||
+			           !resolved.AllowsViewFormat(desc.info.pixel_format) ||
+			           !resolved.AllowsViewFormat(desc.view_info.format)) {
+				result = RecreateWithUnrestrictedViews(result);
 			}
 		}
 		if (!result) {
