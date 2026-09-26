@@ -854,7 +854,7 @@ uint32_t CommandProcessor::NumInstances() {
 	if (m_indirect_instances_addr != 0) {
 		static std::atomic<uint32_t> log_count {0};
 		if (log_count.fetch_add(1, std::memory_order_relaxed) < 16) {
-			LOGF("NumInstances: draw inherits the instance count of a GPU-read indirect draw\n");
+			std::printf("NumInstances: draw inherits the instance count of a GPU-read indirect draw\n");
 		}
 		std::memcpy(&m_num_instances, reinterpret_cast<const void*>(m_indirect_instances_addr),
 		            sizeof(m_num_instances));
@@ -950,9 +950,9 @@ void CommandProcessor::DrawIndirect(uint32_t data_offset, uint32_t draw_initiato
 	const auto* args_addr =
 	    reinterpret_cast<const void*>(m_draw_indirect_args_base_addr + data_offset);
 
+	const auto gpu_args = reinterpret_cast<uint64_t>(args_addr);
+	auto&      executor = m_renderer.GetRenderExecutor();
 	if (!indexed) {
-		const auto gpu_args = reinterpret_cast<uint64_t>(args_addr);
-		auto&      executor = m_renderer.GetRenderExecutor();
 		if (executor.CanDrawAutoFromGpuArgs(CurrentBuffer(), gpu_args)) {
 			// Earlier GPU work usually wrote these arguments; reading them here would drain the
 			// queue. The draw reads them on the GPU instead.
@@ -973,6 +973,35 @@ void CommandProcessor::DrawIndirect(uint32_t data_offset, uint32_t draw_initiato
 		return;
 	}
 
+	// The GPU bounds the draw by the whole INDEX_BUFFER_SIZE range, as the hardware does. An
+	// implausibly large size keeps the CPU path rather than binding that much memory.
+	constexpr uint32_t MaxBoundIndices = 1u << 26u;
+	if (m_index_buffer_size != 0 && m_index_buffer_size <= MaxBoundIndices &&
+	    m_index_base_addr != 0 &&
+	    executor.CanDrawIndexFromGpuArgs(CurrentBuffer(), gpu_args, m_index_type_and_size)) {
+		m_indirect_instances_addr = gpu_args + offsetof(DrawIndexedIndirectArgs, instance_count);
+		executor.DrawIndex(m_submit_id, CurrentBuffer(),
+		                   {.index_count         = m_index_buffer_size,
+		                    .index_addr          = reinterpret_cast<const void*>(m_index_base_addr),
+		                    .index_type_and_size = m_index_type_and_size,
+		                    .offset_source       = DrawOffsetSource::IndirectArgs,
+		                    .gpu_args            = gpu_args});
+		return;
+	}
+
+	{
+		static std::atomic<uint32_t> log_count {0};
+		if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			const auto& buffer = CurrentBuffer();
+			std::printf("DrawIndexIndirect: CPU reads the arguments: index_buffer_size=%u index_type=%u "
+			     "base=0x%016" PRIx64 " args=0x%016" PRIx64 " stages=0x%08" PRIx32
+			     " prim=%u reset_control=0x%x\n",
+			     m_index_buffer_size, m_index_type_and_size, m_index_base_addr, gpu_args,
+			     buffer.GetRegisters().GetShaderStages(),
+			     static_cast<uint32_t>(buffer.GetUserConfig().GetPrimType()),
+			     buffer.GetUserConfig().GetPrimitiveResetControl());
+		}
+	}
 	DrawIndexedIndirectArgs args {};
 	std::memcpy(&args, args_addr, sizeof(args));
 

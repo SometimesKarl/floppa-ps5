@@ -810,31 +810,42 @@ static bool GetDrawTopology(const HW::UserConfig& ucfg, vk::PrimitiveTopology& t
 	return true;
 }
 
-static bool ResolvePrimitiveRestart(const CommandBuffer& buffer,
-                                    const DrawIndexBufferSource& source) {
+enum class PrimitiveRestartMode : uint8_t { Off, Native, Scan };
+
+static PrimitiveRestartMode GetPrimitiveRestartMode(const CommandBuffer& buffer,
+                                                    uint32_t             element_size) {
 	const auto control = buffer.GetUserConfig().GetPrimitiveResetControl();
 	EXIT_NOT_IMPLEMENTED((control & ~0x3u) != 0);
 	if ((control & 0x1u) == 0) {
-		return false;
+		return PrimitiveRestartMode::Off;
 	}
 	switch (buffer.GetUserConfig().GetPrimType()) {
 		case Prospero::PrimitiveType::kLineStrip:
 		case Prospero::PrimitiveType::kTriFan:
 		case Prospero::PrimitiveType::kTriStrip: break;
-		default: return false;
+		default: return PrimitiveRestartMode::Off;
 	}
 
-	const auto element_size = source.guest_element_size;
-	const auto index_mask   = UINT32_MAX >> ((4 - element_size) * 8);
-	const auto reset_index  = buffer.GetRegisters().GetPrimitiveResetIndex();
+	const auto index_mask  = UINT32_MAX >> ((4 - element_size) * 8);
+	const auto reset_index = buffer.GetRegisters().GetPrimitiveResetIndex();
 	if ((control & 0x2u) != 0 && (reset_index & ~index_mask) != 0) {
-		return false;
+		return PrimitiveRestartMode::Off;
 	}
-	const auto restart_index = reset_index & index_mask;
-	if (restart_index == index_mask) {
-		// Use native restart; the 8-bit path widens its marker to 0xffff.
-		return true;
+	// Use native restart; the 8-bit path widens its marker to 0xffff.
+	return (reset_index & index_mask) == index_mask ? PrimitiveRestartMode::Native
+	                                                : PrimitiveRestartMode::Scan;
+}
+
+static bool ResolvePrimitiveRestart(const CommandBuffer& buffer,
+                                    const DrawIndexBufferSource& source) {
+	const auto element_size = source.guest_element_size;
+	switch (GetPrimitiveRestartMode(buffer, element_size)) {
+		case PrimitiveRestartMode::Off: return false;
+		case PrimitiveRestartMode::Native: return true;
+		case PrimitiveRestartMode::Scan: break;
 	}
+	const auto index_mask    = UINT32_MAX >> ((4 - element_size) * 8);
+	const auto restart_index = buffer.GetRegisters().GetPrimitiveResetIndex() & index_mask;
 
 	// A game can set a custom reset value without using it in the index buffer.
 	// Keep restart off in that case; fail if we actually find the value.
@@ -987,9 +998,14 @@ static void EmitDrawPrimitives(const HW::UserConfig& ucfg, vk::CommandBuffer vk_
                                const DrawCallInfo& draw, const DrawEmitInfo& emit,
                                vk::Buffer args_buffer, vk::DeviceSize args_offset) {
 	if (args_buffer != nullptr) {
-		// The guest argument layout is VkDrawIndirectCommand. Topologies that need the vertex
-		// count on the CPU never reach here (CanDrawAutoFromGpuArgs).
-		vk_buffer.drawIndirect(args_buffer, args_offset, 1, sizeof(vk::DrawIndirectCommand));
+		// The guest argument layouts are VkDrawIndirectCommand and VkDrawIndexedIndirectCommand.
+		// Topologies that need the counts on the CPU never reach here (CanDraw*FromGpuArgs).
+		if (draw.IsIndexed()) {
+			vk_buffer.drawIndexedIndirect(args_buffer, args_offset, 1,
+			                              sizeof(vk::DrawIndexedIndirectCommand));
+		} else {
+			vk_buffer.drawIndirect(args_buffer, args_offset, 1, sizeof(vk::DrawIndirectCommand));
+		}
 		return;
 	}
 	switch (ucfg.GetPrimType()) {
@@ -1095,11 +1111,14 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	vk::Buffer     args_buffer = nullptr;
 	vk::DeviceSize args_offset = 0;
 	if (emit.gpu_args != 0) {
-		EXIT_IF(mesh_active || draw.IsIndexed());
+		EXIT_IF(mesh_active);
 		// Earlier guest GPU work usually wrote these arguments. Reading them on the GPU avoids
 		// draining the queue to read them on the CPU.
 		const auto [source, offset] = m_context.GetBufferCache().ObtainBuffer(
-		    emit.gpu_args, sizeof(vk::DrawIndirectCommand), false);
+		    emit.gpu_args,
+		    draw.IsIndexed() ? sizeof(vk::DrawIndexedIndirectCommand)
+		                     : sizeof(vk::DrawIndirectCommand),
+		    false);
 		EXIT_IF(source == nullptr || (offset & 3u) != 0);
 		args_buffer = source->Handle();
 		args_offset = offset;
@@ -1203,7 +1222,10 @@ void RenderExecutor::DrawIndex(uint64_t submit_id, CommandBuffer& buffer,
 	                    reinterpret_cast<uint64_t>(args.index_addr));
 
 	Common::LockGuard lock(m_context.GetMutex());
-	if (args.index_count == 0 || args.instance_count == 0) {
+	const bool gpu_args = args.gpu_args != 0;
+	EXIT_IF(gpu_args && (args.offset_source != DrawOffsetSource::IndirectArgs ||
+	                     args.index_count == 0 || args.index_addr == nullptr));
+	if (!gpu_args && (args.index_count == 0 || args.instance_count == 0)) {
 		return;
 	}
 
@@ -1260,6 +1282,9 @@ void RenderExecutor::DrawIndex(uint64_t submit_id, CommandBuffer& buffer,
 		default: EXIT("unknown index_type_and_size: %u\n", args.index_type_and_size);
 	}
 	index_source.size = static_cast<uint64_t>(args.index_count) * index_source.guest_element_size;
+	EXIT_IF(gpu_args && (index_source.guest_element_size == 1 ||
+	                     GetPrimitiveRestartMode(buffer, index_source.guest_element_size) ==
+	                         PrimitiveRestartMode::Scan));
 	const bool primitive_restart = ResolvePrimitiveRestart(buffer, index_source);
 
 	std::vector<uint16_t> expanded_indices;
@@ -1293,6 +1318,7 @@ void RenderExecutor::DrawIndex(uint64_t submit_id, CommandBuffer& buffer,
 	DrawEmitInfo emit {};
 	emit.vertex_offset  = vertex_offset + args.base_vertex;
 	emit.first_instance = instance_offset;
+	emit.gpu_args       = args.gpu_args;
 
 	ExecutePreparedDraw(submit_id, buffer, draw, state, topology, emit, index_source,
 	                    primitive_restart);
@@ -1402,6 +1428,19 @@ bool RenderExecutor::CanDrawAutoFromGpuArgs(const CommandBuffer& buffer, uint64_
 	return m_context.GetGraphics().draw_indirect_first_instance_enabled && args_addr != 0 &&
 	       (args_addr & 3u) == 0 && !mesh &&
 	       primitive != Prospero::PrimitiveType::kQuadListLegacy;
+}
+
+bool RenderExecutor::CanDrawIndexFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr,
+                                             uint32_t index_type_and_size) const {
+	// 8-bit indices are widened on the CPU, and a custom restart index is checked against the
+	// indices there; both need the index count.
+	const auto type = static_cast<Prospero::IndexType>(index_type_and_size);
+	if (type != Prospero::IndexType::kIndex16 && type != Prospero::IndexType::kIndex32) {
+		return false;
+	}
+	const uint32_t element_size = type == Prospero::IndexType::kIndex16 ? 2u : 4u;
+	return CanDrawAutoFromGpuArgs(buffer, args_addr) &&
+	       GetPrimitiveRestartMode(buffer, element_size) != PrimitiveRestartMode::Scan;
 }
 
 bool RenderExecutor::ResolveColorTargets(CommandBuffer& buffer, uint32_t render_target_slice_offset) {

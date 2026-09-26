@@ -63,6 +63,9 @@ struct DrawIndexArgs {
 	uint32_t         first_instance             = 0;
 	DrawOffsetSource offset_source              = DrawOffsetSource::DrawState;
 	uint32_t         render_target_slice_offset = 0;
+	// Guest address of DRAW_INDEX_INDIRECT arguments for the GPU to read. index_addr and
+	// index_count then describe the whole bound index buffer instead of one draw's indices.
+	uint64_t         gpu_args                   = 0;
 };
 
 struct DrawAutoArgs {
@@ -173,8 +176,11 @@ public:
 private:
 	void DrawIndex(uint64_t submit_id, CommandBuffer& buffer, const DrawIndexArgs& args);
 	void DrawAuto(uint64_t submit_id, CommandBuffer& buffer, const DrawAutoArgs& args);
-	// Whether a DRAW_INDIRECT under the current state can take its arguments on the GPU.
+	// Whether a DRAW_INDIRECT or DRAW_INDEX_INDIRECT under the current state can take its
+	// arguments on the GPU.
 	[[nodiscard]] bool CanDrawAutoFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr) const;
+	[[nodiscard]] bool CanDrawIndexFromGpuArgs(const CommandBuffer& buffer, uint64_t args_addr,
+	                                           uint32_t index_type_and_size) const;
 
 	struct GraphicsBindings {
 		std::array<PreparedBindings, 3> vertex;

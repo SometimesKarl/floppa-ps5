@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <fmt/format.h>
 #include <list>
 #include <thread>
@@ -1250,6 +1251,10 @@ KYTY_SYSV_ABI int VideoOutSetFlipRate(int handle, int rate) {
 	}
 
 	Common::LockGuard lock(ctx->mutex);
+	if (ctx->flip_rate != rate) {
+		// The game caps its own presentation rate; frame-rate measurements need to know it.
+		std::printf("VideoOut: guest flip rate %d (one flip per %d vblanks)\n", rate, rate + 1);
+	}
 	ctx->flip_rate = rate;
 
 	return OK;
