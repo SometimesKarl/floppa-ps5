@@ -1082,6 +1082,7 @@ private:
 		const auto         process           = GetCurrentProcess();
 		const auto         guest_end         = HOST_USER_MAX + 1u;
 		auto               next_addr         = HOST_SYSTEM_MANAGED_MIN;
+		uint32_t           lost_races        = 0;
 
 		while (next_addr < guest_end) {
 			MEMORY_BASIC_INFORMATION info {};
@@ -1101,6 +1102,12 @@ private:
 				auto* ptr = VirtualAlloc2(
 				    process, reinterpret_cast<void*>(reserve_start), reserve_end - reserve_start,
 				    MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS, nullptr, 0);
+				if (ptr == nullptr && ++lost_races <= 64) {
+					// Another thread (profiler workers, injected overlays) mapped memory in this
+					// free region after VirtualQuery. Rescan the same address: the new mapping is
+					// skipped like any pre-existing one and the remainder is reserved.
+					continue;
+				}
 				if (reinterpret_cast<uint64_t>(ptr) != reserve_start) {
 					EXIT("failed to reserve guest address space at 0x%016" PRIx64
 					     ", size 0x%016" PRIx64 "\n",
