@@ -3,6 +3,7 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
+#include "common/threads.h"
 #include "graphics/host_gpu/gpuProfiler.h"
 #include "graphics/host_gpu/graphicContext.h"
 
@@ -330,7 +331,10 @@ void CommandScheduler::DeferPriorityOperationAtEndOfPipe(Common::UniqueFunction<
 void CommandScheduler::WaitForMarker(uint32_t marker, uint64_t tick) {
 	// Markers are written in queue order when all earlier work completes. Completion of the
 	// operation's submission implies its marker too, which bounds the wait either way.
-	constexpr uint64_t PollNs = 100'000;
+	// Poll without blocking in the driver: a short vkWaitSemaphores timeout spins on AMD and
+	// kept this thread near 90% of a core. Timer sleeps back off from 50 us to 1 ms, so a
+	// marker is seen within about a millisecond of being written.
+	uint32_t sleep_us = 50;
 	for (;;) {
 		if (!m_marker_coherent) {
 			vmaInvalidateAllocation(m_graphics.allocator, m_marker_allocation, 0, VK_WHOLE_SIZE);
@@ -338,13 +342,20 @@ void CommandScheduler::WaitForMarker(uint32_t marker, uint64_t tick) {
 		if (static_cast<int32_t>(*m_marker_value - marker) >= 0) {
 			return;
 		}
-		if (m_master.WaitFor(tick, PollNs)) {
+		if (m_master.IsFree(tick)) {
 			return;
 		}
+		m_master.Refresh();
+		if (m_master.IsFree(tick)) {
+			return;
+		}
+		Common::Thread::SleepMicro(sleep_us);
+		sleep_us = std::min(sleep_us * 2, 1000u);
 	}
 }
 
 void CommandScheduler::PriorityOperationsThread(std::stop_token stop) {
+	KYTY_PROFILER_THREAD("Thread_GpuPriority");
 	while (!stop.stop_requested()) {
 		PendingOperation operation;
 		{
