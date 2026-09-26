@@ -65,6 +65,9 @@ public:
 	// Submits unless a submit happened recently: for label writes nothing waits on promptly.
 	// Every Process slice still ends with BufferFlush, so a deferred label is never stranded.
 	void            BufferFlushCoalesced();
+	// After queuing an end-of-pipe interrupt: coalesced when interrupts fire from GPU markers,
+	// otherwise the submission must end here for its completion to deliver the interrupt.
+	void            BufferFlushAfterInterrupt();
 	void            BufferFlushAndWait();
 	void            BufferWait();
 	HW::Context&    GetCtx() { return m_ctx; }

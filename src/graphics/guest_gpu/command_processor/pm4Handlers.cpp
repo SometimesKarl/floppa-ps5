@@ -2279,7 +2279,7 @@ KYTY_CP_OP_PARSER(CpOpReleaseMem) {
 			default: EXIT("unknown release_mem interrupt selector\n");
 		}
 		if (queued) {
-			cp.BufferFlush();
+			cp.BufferFlushAfterInterrupt();
 		}
 	};
 
@@ -2321,7 +2321,7 @@ KYTY_CP_OP_PARSER(CpOpReleaseMem) {
 		if (interrupt_selector == 0x00 || interrupt_selector == 0x03) {
 			cp.BufferFlushCoalesced();
 		} else {
-			cp.BufferFlush();
+			cp.BufferFlushAfterInterrupt();
 		}
 
 		return 7;
@@ -2340,7 +2340,7 @@ KYTY_CP_OP_PARSER(CpOpReleaseMem) {
 		                      event_index, event_source, dst_gpu_addr, static_cast<uint32_t>(value),
 		                      interrupt_selector, interrupt_context_id);
 		if (interrupt_selector == 0x01) {
-			cp.BufferFlush();
+			cp.BufferFlushAfterInterrupt();
 		}
 
 		return 7;

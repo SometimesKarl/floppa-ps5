@@ -231,8 +231,14 @@ void TriggerEopEventAtEndOfPipe(CommandBuffer& buffer, int event_id, uint32_t co
 	auto& renderer  = buffer.GetContext();
 	auto& scheduler = renderer.GetCommandScheduler();
 	EXIT_IF(!scheduler.Active() || &buffer != &scheduler.Current());
-	scheduler.DeferPriorityOperation(
-	    [&renderer, event_id, context_id] { renderer.TriggerInterrupt(event_id, context_id); });
+	auto trigger = [&renderer, event_id, context_id] {
+		renderer.TriggerInterrupt(event_id, context_id);
+	};
+	if (scheduler.SupportsEndOfPipeOperations()) {
+		scheduler.DeferPriorityOperationAtEndOfPipe(std::move(trigger));
+	} else {
+		scheduler.DeferPriorityOperation(std::move(trigger));
+	}
 }
 
 static void InterruptEventResetFunc(LibKernel::EventQueue::KernelEqueueEvent* event) {

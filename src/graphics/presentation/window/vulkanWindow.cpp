@@ -568,6 +568,8 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 	    conditional_rendering_extension && supported_conditional_rendering.conditionalRendering;
 	graphics.calibrated_timestamps_enabled =
 	    HasExtension(device_extensions, VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+	graphics.buffer_marker_enabled =
+	    HasExtension(device_extensions, VK_AMD_BUFFER_MARKER_EXTENSION_NAME);
 	LOGF("Vulkan conditional rendering: %s\n",
 	     graphics.conditional_rendering_enabled ? "true" : "false");
 	graphics.mesh_shader_enabled = mesh_extension && supported_mesh.meshShader;
@@ -1069,6 +1071,7 @@ void WindowContext::CreateVulkan() {
 		                             VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME,
 		                             VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME,
 		                             VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
+		                             VK_AMD_BUFFER_MARKER_EXTENSION_NAME,
 		                             VK_EXT_MESH_SHADER_EXTENSION_NAME,
 		                             VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME}) {
 			if (HasExtension(available_extensions, extension)) {

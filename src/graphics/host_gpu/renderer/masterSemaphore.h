@@ -30,6 +30,8 @@ public:
 
 	void Refresh();
 	void Wait(uint64_t tick);
+	// Waits at most timeout_ns; returns whether the tick has completed.
+	[[nodiscard]] bool WaitFor(uint64_t tick, uint64_t timeout_ns);
 
 private:
 	GraphicContext&       m_graphics;

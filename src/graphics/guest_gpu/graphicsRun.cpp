@@ -287,6 +287,14 @@ void CommandProcessor::BufferFlushCoalesced() {
 	}
 }
 
+void CommandProcessor::BufferFlushAfterInterrupt() {
+	if (GetScheduler().SupportsEndOfPipeOperations()) {
+		BufferFlushCoalesced();
+	} else {
+		BufferFlush();
+	}
+}
+
 void CommandProcessor::BufferFlushAndWait() {
 	GetScheduler().FlushAndWait();
 }

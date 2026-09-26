@@ -4,6 +4,8 @@
 #include "common/threads.h"
 #include "graphics/host_gpu/graphicContext.h"
 
+#include <chrono>
+
 namespace Libs::Graphics::GpuProfiler {
 
 namespace {
@@ -58,9 +60,18 @@ tracy::VkCtx* ZoneContext() noexcept {
 }
 
 void Collect(vk::CommandBuffer command) {
-	if (g_zone_thread && g_context != nullptr) {
-		g_context->Collect(static_cast<VkCommandBuffer>(command));
+	if (!g_zone_thread || g_context == nullptr) {
+		return;
 	}
+	// Reading query results on every command buffer (hundreds per frame) inflates the traced
+	// CPU time; the 64K-entry query pool easily covers a millisecond of zones.
+	static thread_local auto last = std::chrono::steady_clock::time_point {};
+	const auto               now  = std::chrono::steady_clock::now();
+	if (now - last < std::chrono::milliseconds(1)) {
+		return;
+	}
+	last = now;
+	g_context->Collect(static_cast<VkCommandBuffer>(command));
 }
 
 } // namespace Libs::Graphics::GpuProfiler

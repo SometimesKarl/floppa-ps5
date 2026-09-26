@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <optional>
+#include <vk_mem_alloc.h>
 
 namespace Libs::Graphics {
 
@@ -98,10 +99,48 @@ bool CommandScheduler::InDeferredOperation() noexcept {
 CommandScheduler::CommandScheduler(RenderContext& context, GraphicContext& graphics)
     : m_master(graphics), m_context(context), m_graphics(graphics),
       m_command_pool(graphics, m_master), m_command(*this),
-      m_priority_thread([this](std::stop_token stop) { PriorityOperationsThread(stop); }) {}
+      m_priority_thread([this](std::stop_token stop) { PriorityOperationsThread(stop); }) {
+	CreateMarkerBuffer();
+}
 
 CommandScheduler::~CommandScheduler() {
 	Shutdown();
+	if (m_marker_buffer != nullptr) {
+		vmaDestroyBuffer(m_graphics.allocator, m_marker_buffer, m_marker_allocation);
+	}
+}
+
+void CommandScheduler::CreateMarkerBuffer() {
+	if (!m_graphics.buffer_marker_enabled) {
+		return;
+	}
+	VkBufferCreateInfo buffer_info {};
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.size  = 64;
+	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	VmaAllocationCreateInfo allocation_info {};
+	allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+	allocation_info.flags =
+	    VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+	VkBuffer          buffer     = VK_NULL_HANDLE;
+	VmaAllocation     allocation = nullptr;
+	VmaAllocationInfo info {};
+	if (vmaCreateBuffer(m_graphics.allocator, &buffer_info, &allocation_info, &buffer, &allocation,
+	                    &info) != VK_SUCCESS) {
+		return;
+	}
+	if (info.pMappedData == nullptr) {
+		vmaDestroyBuffer(m_graphics.allocator, buffer, allocation);
+		return;
+	}
+	VkMemoryPropertyFlags flags = 0;
+	vmaGetAllocationMemoryProperties(m_graphics.allocator, allocation, &flags);
+	m_marker_coherent = (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+	*static_cast<uint32_t*>(info.pMappedData) = 0;
+	vmaFlushAllocation(m_graphics.allocator, allocation, 0, VK_WHOLE_SIZE);
+	m_marker_value      = static_cast<const volatile uint32_t*>(info.pMappedData);
+	m_marker_allocation = allocation;
+	m_marker_buffer     = buffer;
 }
 
 void CommandScheduler::Shutdown() {
@@ -270,6 +309,41 @@ void CommandScheduler::DeferPriorityOperation(Common::UniqueFunction<void>&& ope
 	operation();
 }
 
+void CommandScheduler::DeferPriorityOperationAtEndOfPipe(Common::UniqueFunction<void>&& operation) {
+	CheckActive();
+	EXIT_IF(!operation || !SupportsEndOfPipeOperations());
+	std::unique_lock lock(m_operation_mutex);
+	if (m_operation_state != OperationState::Open) {
+		lock.unlock();
+		DeferPriorityOperation(std::move(operation));
+		return;
+	}
+	// Zero is the buffer's initial value; markers compare by wrapping difference.
+	m_last_marker = m_last_marker + 1 == 0 ? 1 : m_last_marker + 1;
+	m_command.Handle().writeBufferMarkerAMD(vk::PipelineStageFlagBits::eBottomOfPipe,
+	                                        m_marker_buffer, 0, m_last_marker);
+	m_priority_operations.push({std::move(operation), CurrentTick(), m_last_marker});
+	lock.unlock();
+	m_operation_available.notify_one();
+}
+
+void CommandScheduler::WaitForMarker(uint32_t marker, uint64_t tick) {
+	// Markers are written in queue order when all earlier work completes. Completion of the
+	// operation's submission implies its marker too, which bounds the wait either way.
+	constexpr uint64_t PollNs = 100'000;
+	for (;;) {
+		if (!m_marker_coherent) {
+			vmaInvalidateAllocation(m_graphics.allocator, m_marker_allocation, 0, VK_WHOLE_SIZE);
+		}
+		if (static_cast<int32_t>(*m_marker_value - marker) >= 0) {
+			return;
+		}
+		if (m_master.WaitFor(tick, PollNs)) {
+			return;
+		}
+	}
+}
+
 void CommandScheduler::PriorityOperationsThread(std::stop_token stop) {
 	while (!stop.stop_requested()) {
 		PendingOperation operation;
@@ -286,7 +360,11 @@ void CommandScheduler::PriorityOperationsThread(std::stop_token stop) {
 			m_priority_active      = true;
 			m_priority_active_tick = operation.tick;
 		}
-		m_master.Wait(operation.tick);
+		if (operation.marker != 0) {
+			WaitForMarker(operation.marker, operation.tick);
+		} else {
+			m_master.Wait(operation.tick);
+		}
 		if (!stop.stop_requested()) {
 			RunOperation(std::move(operation.callback));
 		}
