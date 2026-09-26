@@ -41,6 +41,16 @@ constexpr size_t WATCHES_RESERVE_CHUNK   = 0x1000;
 	return VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 }
 
+[[nodiscard]] GraphicContext::AllocationKind AccountingKind(MemoryUsage usage) {
+	switch (usage) {
+		case MemoryUsage::DeviceLocal: return GraphicContext::AllocationKind::DeviceLocal;
+		case MemoryUsage::Upload: return GraphicContext::AllocationKind::Upload;
+		case MemoryUsage::Download: return GraphicContext::AllocationKind::Download;
+		case MemoryUsage::Stream: return GraphicContext::AllocationKind::Stream;
+	}
+	return GraphicContext::AllocationKind::DeviceLocal;
+}
+
 [[nodiscard]] bool AlignUp(uint64_t value, uint64_t alignment, uint64_t& result) {
 	if (alignment == 0) {
 		result = value;
@@ -87,6 +97,7 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 		graphics.LogMemoryBudget();
 	}
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
+	graphics.AccountAllocation(AccountingKind(usage), m_allocation, true);
 
 	m_buffer = native_buffer;
 	if (with_bda) {
@@ -107,6 +118,7 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 
 Buffer::~Buffer() {
 	if (m_buffer != nullptr) {
+		m_graphics->AccountAllocation(AccountingKind(m_usage), m_allocation, false);
 		vmaDestroyBuffer(m_graphics->allocator, m_buffer, m_allocation);
 	}
 }

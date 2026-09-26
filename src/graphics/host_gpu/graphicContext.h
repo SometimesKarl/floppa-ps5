@@ -98,8 +98,14 @@ struct GraphicContext {
 	[[nodiscard]] bool CreateAllocator();
 	void               DestroyAllocator();
 	void               LogMemoryBudget() const;
-	// Prints per-memory-type block and allocation totals (KYTY_MEMORY_STATS diagnostics).
+	// Prints per-memory-type block and allocation totals, heap budgets and what the emulator's
+	// images and buffers occupy per memory type (KYTY_MEMORY_STATS diagnostics).
 	void               PrintMemoryStatistics() const;
+	// Kinds for AccountAllocation: images, then buffers by MemoryUsage (DeviceLocal, Upload,
+	// Download, Stream).
+	enum class AllocationKind : uint32_t { Image, DeviceLocal, Upload, Download, Stream, Count };
+	// Tracks live bytes per kind and memory type; call with added=false before freeing.
+	void AccountAllocation(AllocationKind kind, VmaAllocation allocation, bool added) const;
 	[[nodiscard]] bool CanReportMemoryUsage() const noexcept { return memory_budget_ext_enabled; }
 	[[nodiscard]] uint64_t GetDeviceMemoryUsage() const;
 	[[nodiscard]] uint64_t GetTotalMemoryBudget() const;

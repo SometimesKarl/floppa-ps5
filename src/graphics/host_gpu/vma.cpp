@@ -20,6 +20,8 @@
 #include "graphics/host_gpu/graphicContext.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cinttypes>
 #include <cstdio>
 
@@ -78,6 +80,34 @@ void GraphicContext::LogMemoryBudget() const {
 	}
 }
 
+namespace {
+
+struct KindCounters {
+	std::array<std::atomic<int64_t>, VK_MAX_MEMORY_TYPES> bytes {};
+	std::array<std::atomic<int64_t>, VK_MAX_MEMORY_TYPES> count {};
+};
+
+std::array<KindCounters, static_cast<size_t>(GraphicContext::AllocationKind::Count)> g_accounting;
+
+} // namespace
+
+void GraphicContext::AccountAllocation(AllocationKind kind, VmaAllocation allocation,
+                                       bool added) const {
+	if (allocator == nullptr || allocation == nullptr || kind >= AllocationKind::Count) {
+		return;
+	}
+	VmaAllocationInfo info {};
+	vmaGetAllocationInfo(allocator, allocation, &info);
+	if (info.memoryType >= VK_MAX_MEMORY_TYPES) {
+		return;
+	}
+	auto&         counters = g_accounting[static_cast<size_t>(kind)];
+	const int64_t sign     = added ? 1 : -1;
+	counters.bytes[info.memoryType].fetch_add(sign * static_cast<int64_t>(info.size),
+	                                          std::memory_order_relaxed);
+	counters.count[info.memoryType].fetch_add(sign, std::memory_order_relaxed);
+}
+
 void GraphicContext::PrintMemoryStatistics() const {
 	if (allocator == nullptr) {
 		return;
@@ -99,6 +129,34 @@ void GraphicContext::PrintMemoryStatistics() const {
 		            (flags & vk::MemoryPropertyFlagBits::eHostCached) ? "host-cached" : "",
 		            s.blockCount, static_cast<double>(s.blockBytes) / MiB, s.allocationCount,
 		            static_cast<double>(s.allocationBytes) / MiB);
+	}
+	VmaBudget budgets[VK_MAX_MEMORY_HEAPS] {};
+	vmaGetHeapBudgets(allocator, budgets);
+	for (uint32_t heap = 0; heap < properties.memoryHeapCount; heap++) {
+		std::printf("Memory heap %u (%s, %.0f MiB): usage=%.0f MiB budget=%.0f MiB (VMA blocks %.0f MiB)\n",
+		            heap,
+		            (properties.memoryHeaps[heap].flags & vk::MemoryHeapFlagBits::eDeviceLocal)
+		                ? "device-local"
+		                : "system",
+		            static_cast<double>(properties.memoryHeaps[heap].size) / MiB,
+		            static_cast<double>(budgets[heap].usage) / MiB,
+		            static_cast<double>(budgets[heap].budget) / MiB,
+		            static_cast<double>(budgets[heap].statistics.blockBytes) / MiB);
+	}
+	static constexpr const char* KindNames[] {"images", "buffers device-local", "buffers upload",
+	                                          "buffers download", "buffers stream"};
+	for (size_t kind = 0; kind < g_accounting.size(); kind++) {
+		for (uint32_t type = 0; type < properties.memoryTypeCount; type++) {
+			const auto count = g_accounting[kind].count[type].load(std::memory_order_relaxed);
+			if (count == 0) {
+				continue;
+			}
+			std::printf("Memory owner %s in type %u: %" PRId64 " allocations, %.0f MiB\n",
+			            KindNames[kind], type, count,
+			            static_cast<double>(g_accounting[kind].bytes[type].load(
+			                std::memory_order_relaxed)) /
+			                MiB);
+		}
 	}
 	std::fflush(stdout);
 }
@@ -170,6 +228,7 @@ bool GraphicContext::CreateImage(const vk::ImageCreateInfo& image_info, VulkanIm
 		LogMemoryBudget();
 		return false;
 	}
+	AccountAllocation(AllocationKind::Image, image.allocation, true);
 
 	image.format     = image_info.format;
 	image.image_type = image_info.imageType;
@@ -189,6 +248,7 @@ void GraphicContext::DeleteImage(VulkanImage& image) {
 	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(allocator == nullptr || image.image == nullptr || image.allocation == nullptr);
 
+	AccountAllocation(AllocationKind::Image, image.allocation, false);
 	vmaDestroyImage(allocator, image.image, image.allocation);
 	image.image      = nullptr;
 	image.allocation = nullptr;
