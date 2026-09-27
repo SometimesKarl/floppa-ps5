@@ -11,6 +11,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -280,6 +281,27 @@ PageManager::~PageManager() = default;
 
 uint64_t PageManager::GetPageSize() const {
 	return PAGE_SIZE;
+}
+
+bool PageManager::IsReadProtected(uint64_t vaddr, uint64_t size) const {
+	if (size == 0 || vaddr >= ADDRESS_SIZE || size > ADDRESS_SIZE - vaddr) {
+		return true;
+	}
+	const auto last = (vaddr + size - 1) / PAGE_SIZE;
+	for (auto page = vaddr / PAGE_SIZE; page <= last; page++) {
+		const auto* region = m_impl->FindRegion(page * PAGE_SIZE);
+		if (region == nullptr) {
+			continue;
+		}
+		const auto& state = region->pages[page % REGION_PAGES];
+		const auto  raw   = *reinterpret_cast<const volatile uint8_t*>(&state);
+		Impl::PageState copy;
+		std::memcpy(&copy, &raw, sizeof(copy));
+		if (copy.access_watchers != 0) {
+			return true;
+		}
+	}
+	return false;
 }
 
 template <bool track>

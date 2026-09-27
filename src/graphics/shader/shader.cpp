@@ -98,7 +98,7 @@ static ShaderMappedData ShaderGetMappedData(uint64_t addr, const char* label) {
 // leaves that page read-protected, and reading the unchanged code through it drains the GPU
 // queue on every bind. Read clean bytes through the backing; fault only for GPU-written ones.
 static void ReadShaderMemory(uint64_t address, void* data, uint64_t size) {
-	if (!LibKernel::Memory::TryReadGpuCleanBacking(address, data, size)) {
+	if (!LibKernel::Memory::TryReadGuestWithoutFault(address, data, size)) {
 		std::memcpy(data, reinterpret_cast<const void*>(address), size);
 	}
 }
@@ -109,7 +109,7 @@ static void ReadShaderMemory(uint64_t address, void* data, uint64_t size) {
 static void ReadVertexTable(const uint32_t* address, uint32_t* data, uint32_t dwords) {
 	const auto vaddr = reinterpret_cast<uint64_t>(address);
 	const auto size  = static_cast<uint64_t>(dwords) * sizeof(uint32_t);
-	if (!LibKernel::Memory::TryReadGpuCleanBacking(vaddr, data, size)) {
+	if (!LibKernel::Memory::TryReadGuestWithoutFault(vaddr, data, size)) {
 		static std::atomic<uint32_t> log_count {0};
 		if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
 			std::printf("Shader: vertex table at 0x%016" PRIx64 " was written by the GPU; "

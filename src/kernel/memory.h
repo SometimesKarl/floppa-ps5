@@ -110,6 +110,10 @@ void                   SetFlexibleMemorySize(uint64_t size);
 bool                   TryWriteBacking(uint64_t vaddr, const void* data, uint64_t size);
 bool                   TryReadBacking(uint64_t vaddr, void* data, uint64_t size);
 bool                   TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size);
+// For reads that used to dereference guest memory directly and only need to avoid the fault that
+// drains the GPU queue: reads pages that are not read-protected directly (a lock-free page-state
+// check), otherwise tries TryReadGpuCleanBacking. False: read through the guest address.
+bool                   TryReadGuestWithoutFault(uint64_t vaddr, void* data, uint64_t size);
 bool                   TryReadPrtBacking(uint64_t vaddr, void* data, uint64_t size);
 [[nodiscard]] uint64_t ClampRangeSize(uint64_t vaddr, uint64_t size);
 void                   WriteBacking(uint64_t vaddr, const void* data, uint64_t size) noexcept;

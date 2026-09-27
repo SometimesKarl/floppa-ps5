@@ -19,6 +19,10 @@ public:
 	KYTY_CLASS_NO_COPY(PageManager);
 
 	[[nodiscard]] uint64_t GetPageSize() const;
+	// True when any page of the range is currently read-protected (a CPU read would fault). Reads
+	// the page states without the region lock, so it is a hint: a concurrent change only means
+	// the caller takes its slower path or faults as it would have without asking.
+	[[nodiscard]] bool IsReadProtected(uint64_t vaddr, uint64_t size) const;
 
 	template <bool track>
 	void UpdatePageWatchers(uint64_t vaddr, uint64_t size);

@@ -884,6 +884,16 @@ bool TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size) {
 	return TryReadBacking(vaddr, data, size);
 }
 
+bool TryReadGuestWithoutFault(uint64_t vaddr, void* data, uint64_t size) {
+	if (g_gpu_resources != nullptr && IsGpuAddressRange(vaddr, size) &&
+	    Graphics::GuestGpu::IsGpuThread() &&
+	    !GetGpuResources().GetPageManager().IsReadProtected(vaddr, size)) {
+		std::memcpy(data, reinterpret_cast<const void*>(vaddr), size);
+		return true;
+	}
+	return TryReadGpuCleanBacking(vaddr, data, size);
+}
+
 uint64_t ClampRangeSize(uint64_t vaddr, uint64_t size) {
 	EXIT_IF(g_virtual_ranges == nullptr);
 

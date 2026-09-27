@@ -46,6 +46,7 @@ public:
 	SamplerCache&       GetSamplerCache() { return m_sampler_cache; }
 	BufferCache&        GetBufferCache() { return m_buffer_cache; }
 	TextureCache&       GetTextureCache() { return m_texture_cache; }
+	PageManager&        GetPageManager() { return m_page_manager; }
 	RenderExecutor&     GetRenderExecutor() { return m_render_executor; }
 
 	[[nodiscard]] bool HandleFault(PageFaultAccess access, uint64_t fault_vaddr) noexcept;

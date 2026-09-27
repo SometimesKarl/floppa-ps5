@@ -417,7 +417,7 @@ struct PipelineCache::ProgramCache {
 PipelineCache::PipelineCache(GraphicContext& graphics)
     : m_graphics(graphics), m_program_cache(std::make_unique<ProgramCache>(graphics.device)) {
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
-	ShaderRecompiler::IR::SetSrtDirectReader(&Libs::LibKernel::Memory::TryReadGpuCleanBacking);
+	ShaderRecompiler::IR::SetSrtDirectReader(&Libs::LibKernel::Memory::TryReadGuestWithoutFault);
 	InitializeDriverCache();
 }
 
