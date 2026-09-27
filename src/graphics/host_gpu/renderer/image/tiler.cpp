@@ -21,6 +21,7 @@
 #include "graphics/host_gpu/renderer/image/image.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <array>
 #include <bit>
 #include <cstring>
@@ -259,6 +260,10 @@ vk::Pipeline TileManager::GetPipeline(uint32_t slot) {
 	const uint32_t                   direction_index = slot / (FamilyCount * BytesPerElementCount);
 	const uint32_t                   family_index    = (slot / BytesPerElementCount) % FamilyCount;
 	const uint32_t                   values[] {1u << element_index, direction_index};
+	// Pipelines are built on first use; a driver failure while compiling one is otherwise opaque.
+	std::printf("TileManager: creating pipeline slot=%u family=%u element_bytes=%u direction=%u\n",
+	            slot, family_index, 1u << element_index, direction_index);
+	std::fflush(stdout);
 	const vk::SpecializationMapEntry entries[] {{0, 0, 4}, {1, 4, 4}};
 	const vk::SpecializationInfo     specialization {2, entries, sizeof(values), values};
 	const auto module =
