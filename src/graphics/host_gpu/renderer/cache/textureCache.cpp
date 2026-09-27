@@ -1494,6 +1494,19 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 			}
 		}
 		if (!result) {
+			// A new texture over memory older images described: those whose bytes the CPU has
+			// rewritten since are stale and would be re-uploaded on their next use anyway. Free
+			// them now, so a level load does not hold both levels' textures in video memory
+			// until the collector reaches them (ASTRO BOT ran out of VRAM loading Sky Garden).
+			for (const auto id: candidates) {
+				const auto* stale = m_slot_images.try_get(id);
+				if (stale != nullptr && stale->registered && stale->IsDefinitelyCpuDirty() &&
+				    !stale->IsGpuModified() && !stale->IsBufferModified() && !stale->depth_id &&
+				    !stale->usage.render_target && !stale->usage.depth_target) {
+					FreeImage(id);
+					m_overlap_freed++;
+				}
+			}
 			result         = InsertImage(desc.info);
 			auto& inserted = m_slot_images[result];
 			if (m_buffer_cache.HasGpuDirtyBytes(inserted.info.data.address,
@@ -2308,14 +2321,16 @@ void TextureCache::RunGarbageCollector() {
 			});
 			std::printf("TextureCache: %" PRIu64 " images %.0f MiB (GPU-written tiled %" PRIu64
 			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
-			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 " in 30 s\n",
+			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 ", replaced %" PRIu64
+			            " in 30 s\n",
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
-			            m_gc_freed, m_gc_kept, m_gc_emergency_freed);
+			            m_gc_freed, m_gc_kept, m_gc_emergency_freed, m_overlap_freed);
 			std::fflush(stdout);
 			m_gc_freed           = 0;
 			m_gc_kept            = 0;
 			m_gc_emergency_freed = 0;
+			m_overlap_freed      = 0;
 		}
 	}
 }

@@ -203,6 +203,7 @@ private:
 	uint64_t m_gc_freed = 0;
 	uint64_t m_gc_kept  = 0;
 	uint64_t m_gc_emergency_freed = 0;
+	uint64_t m_overlap_freed = 0;
 	Common::TickHistory m_tick_history;
 	// Over the device budget (a level load outrunning the regular passes): frees every image
 	// unused for 5 s, and GPU-written tiled images unused for 30 s. Caller holds m_lock.
