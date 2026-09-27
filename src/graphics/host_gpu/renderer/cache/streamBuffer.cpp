@@ -7,6 +7,9 @@
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
 
+#include <atomic>
+#include <cinttypes>
+#include <cstdio>
 #include <cstring>
 #include <numeric>
 #include <vk_mem_alloc.h>
@@ -90,10 +93,29 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 
 	VmaAllocationInfo allocation_result {};
 	VkBuffer          native_buffer = VK_NULL_HANDLE;
-	const auto        result        = static_cast<vk::Result>(vmaCreateBuffer(
-	    graphics.allocator, static_cast<const VkBufferCreateInfo*>(buffer_info), &allocation_info,
-	    &native_buffer, &m_allocation, &allocation_result));
+	const auto        create        = [&] {
+		return static_cast<vk::Result>(vmaCreateBuffer(
+		    graphics.allocator, static_cast<const VkBufferCreateInfo*>(buffer_info),
+		    &allocation_info, &native_buffer, &m_allocation, &allocation_result));
+	};
+	auto result = create();
 	if (result != vk::Result::eSuccess) {
+		// A level load can allocate faster than the cache collectors free the previous level's
+		// resources. Past the budget the driver still allocates (the OS pages VRAM out), which
+		// is slower for a moment but lets the collectors catch up instead of ending the game.
+		static std::atomic<uint32_t> over_budget_count {0};
+		if (over_budget_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Buffer: %" PRIu64 " bytes do not fit the memory budget (%s); allocating "
+			            "past it\n",
+			            size, vk::to_string(result).c_str());
+			graphics.LogMemoryBudget();
+		}
+		allocation_info.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+		result = create();
+	}
+	if (result != vk::Result::eSuccess) {
+		std::printf("Buffer: allocation of %" PRIu64 " bytes failed: %s\n", size,
+		            vk::to_string(result).c_str());
 		graphics.LogMemoryBudget();
 	}
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);

@@ -71,13 +71,17 @@ void GraphicContext::LogMemoryBudget() const {
 	const auto& properties = GetPhysicalDeviceMemoryProperties();
 	VmaBudget   budgets[VK_MAX_MEMORY_HEAPS] {};
 	vmaGetHeapBudgets(allocator, budgets);
+	// printf, not LOGF: this runs right before an allocation failure ends the process, and
+	// must reach the console log in every configuration.
 	for (uint32_t i = 0; i < properties.memoryHeapCount; i++) {
-		LOGF("VMA heap %u: usage=%" PRIu64 ", budget=%" PRIu64 ", allocation=%" PRIu64
-		     ", blocks=%" PRIu64 "\n",
-		     i, static_cast<uint64_t>(budgets[i].usage), static_cast<uint64_t>(budgets[i].budget),
-		     static_cast<uint64_t>(budgets[i].statistics.allocationBytes),
-		     static_cast<uint64_t>(budgets[i].statistics.blockBytes));
+		std::printf("VMA heap %u: usage=%" PRIu64 ", budget=%" PRIu64 ", allocation=%" PRIu64
+		            ", blocks=%" PRIu64 "\n",
+		            i, static_cast<uint64_t>(budgets[i].usage),
+		            static_cast<uint64_t>(budgets[i].budget),
+		            static_cast<uint64_t>(budgets[i].statistics.allocationBytes),
+		            static_cast<uint64_t>(budgets[i].statistics.blockBytes));
 	}
+	std::fflush(stdout);
 }
 
 namespace {
@@ -220,9 +224,27 @@ bool GraphicContext::CreateImage(const vk::ImageCreateInfo& image_info, VulkanIm
 	alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
 	vk::Image::CType native_image = VK_NULL_HANDLE;
-	const auto        result       = static_cast<vk::Result>(
+	auto              result       = static_cast<vk::Result>(
 	    vmaCreateImage(allocator, static_cast<const vk::ImageCreateInfo::NativeType*>(image_info),
 	                   &alloc_info, &native_image, &image.allocation, nullptr));
+	if (result != vk::Result::eSuccess) {
+		// Video memory is exhausted even past the budget: place the image in system memory
+		// (slower to sample) rather than end the game; the texture collector frees VRAM later.
+		static std::atomic<uint32_t> fallback_count {0};
+		if (fallback_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Image: %ux%u format=%d does not fit video memory (%s); using system "
+			            "memory\n",
+			            image_info.extent.width, image_info.extent.height,
+			            static_cast<int>(image_info.format), vk::to_string(result).c_str());
+			LogMemoryBudget();
+		}
+		alloc_info.requiredFlags  = 0;
+		alloc_info.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		native_image              = VK_NULL_HANDLE;
+		result                    = static_cast<vk::Result>(vmaCreateImage(
+		    allocator, static_cast<const vk::ImageCreateInfo::NativeType*>(image_info), &alloc_info,
+		    &native_image, &image.allocation, nullptr));
+	}
 	image.image = native_image;
 	if (result != vk::Result::eSuccess) {
 		LogMemoryBudget();
