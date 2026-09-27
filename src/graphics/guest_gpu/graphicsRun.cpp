@@ -1,4 +1,5 @@
 #include "graphics/guest_gpu/graphicsRun.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/allocSampler.h"
 #include "common/assert.h"
@@ -1429,6 +1430,16 @@ void CommandProcessor::WriteAtEndOfPipe64(uint32_t cache_policy, uint32_t event_
 
 void CommandProcessor::EmitGlobalBarrier() {
 	Common::LockGuard lock(m_renderer.GetMutex());
+	RenderStats::Count(RenderStats::g_global_barriers);
+	{
+		static thread_local uint64_t last_work = UINT64_MAX;
+		const auto work = RenderStats::g_draws.load(std::memory_order_relaxed) +
+		                  RenderStats::g_dispatches.load(std::memory_order_relaxed);
+		if (work == last_work) {
+			RenderStats::Count(RenderStats::g_redundant_global);
+		}
+		last_work = work;
+	}
 
 	vk::MemoryBarrier2 barrier {};
 	barrier.srcStageMask  = vk::PipelineStageFlagBits2::eAllCommands;

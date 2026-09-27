@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/renderContext.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 
 namespace Libs::Graphics {
@@ -143,6 +145,31 @@ void RenderContext::PrepareBda() {
 
 void RenderContext::RunGarbageCollector() {
 	KYTY_PROFILER_FUNCTION();
+	static const bool print_gpu_stats = std::getenv("KYTY_GPU_STATS") != nullptr;
+	if (print_gpu_stats) {
+		static auto last = std::chrono::steady_clock::now();
+		const auto  now  = std::chrono::steady_clock::now();
+		if (now - last >= std::chrono::seconds(10)) {
+			const double seconds = std::chrono::duration<double>(now - last).count();
+			last                 = now;
+			const auto take = [](std::atomic<uint64_t>& counter) {
+				return static_cast<double>(counter.exchange(0, std::memory_order_relaxed));
+			};
+			const auto draws      = take(RenderStats::g_draws);
+			const auto dispatches = take(RenderStats::g_dispatches);
+			const auto begins     = take(RenderStats::g_begin_rendering);
+			const auto ends       = take(RenderStats::g_end_rendering);
+			const auto global     = take(RenderStats::g_global_barriers);
+			const auto redundant  = take(RenderStats::g_redundant_global);
+			const auto images     = take(RenderStats::g_image_barriers);
+			std::printf("GPU stats per second: draws %.0f dispatches %.0f | begin rendering %.0f end "
+			            "%.0f | global barriers %.0f (%.0f with no work since the last) | image "
+			            "barrier batches %.0f\n",
+			            draws / seconds, dispatches / seconds, begins / seconds, ends / seconds,
+			            global / seconds, redundant / seconds, images / seconds);
+			std::fflush(stdout);
+		}
+	}
 	static const bool print_memory = std::getenv("KYTY_MEMORY_STATS") != nullptr;
 	if (print_memory) {
 		static auto last = std::chrono::steady_clock::now();

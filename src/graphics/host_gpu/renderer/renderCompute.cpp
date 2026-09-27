@@ -1,4 +1,5 @@
 #include "common/assert.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 #include "common/common.h"
 #include "common/emulatorConfig.h"
 #include "common/file.h"
@@ -398,6 +399,7 @@ void RenderExecutor::DispatchDirect(uint64_t submit_id, CommandBuffer& buffer,
 	{
 		KYTY_GPU_ZONE(vk_buffer, "GPU guest dispatch");
 		vk_buffer.dispatch(thread_group_x, thread_group_y, thread_group_z);
+		RenderStats::Count(RenderStats::g_dispatches);
 	}
 
 	// The removed host fence also ordered read-only dispatches before later writers.
@@ -464,6 +466,7 @@ void RenderExecutor::DispatchIndirect(uint64_t submit_id, CommandBuffer& buffer,
 	{
 		KYTY_GPU_ZONE(vk_buffer, "GPU guest dispatch indirect");
 		vk_buffer.dispatchIndirect(args_buffer->Handle(), args_offset);
+		RenderStats::Count(RenderStats::g_dispatches);
 	}
 	ShaderAccessBarrier(vk_buffer, vk::PipelineStageFlagBits::eComputeShader);
 	ResetBindings();
