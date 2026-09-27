@@ -1218,25 +1218,14 @@ bool FlipQueue::Flip(uint32_t micros) {
 		return false;
 	}
 
+	// The flip completes at this vblank, as on hardware: the presenter captured the guest surface
+	// into its own frame image before the request became ready, so the guest may reuse the
+	// buffer and see the flip now. The host present below (1-2.5 ms, vsync-bound) no longer
+	// delays the flip event or holds the video-out lock.
 	m_mutex.Lock();
 	if (m_requests.empty() || m_requests.front().id != r.id ||
 	    m_requests.front().state != RequestState::Ready || !m_processing) {
 		EXIT("video-out request changed before presentation, id=%" PRIu64 "\n", r.id);
-	}
-	m_requests.front().state = RequestState::Presenting;
-	m_mutex.Unlock();
-
-	const auto present_begin = Common::Timer::QueryPerformanceCounter();
-	m_presenter.Present(*r.frame);
-	if (auto& log = FrameLog::Instance(); log.Enabled()) {
-		log.Write(r.source == FlipRequestSource::GpuEop ? 0 : 1, r.id, r.flip_arg, r.index,
-		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter());
-	}
-
-	m_mutex.Lock();
-	if (m_requests.empty() || m_requests.front().id != r.id ||
-	    m_requests.front().state != RequestState::Presenting) {
-		EXIT("video-out flip queue changed while processing its front request\n");
 	}
 	m_requests.pop_front();
 
@@ -1257,6 +1246,13 @@ bool FlipQueue::Flip(uint32_t micros) {
 	m_submit_slot_cond_var.Signal();
 	m_mutex.Unlock();
 	r.cfg->mutex.Unlock();
+
+	const auto present_begin = Common::Timer::QueryPerformanceCounter();
+	m_presenter.Present(*r.frame);
+	if (auto& log = FrameLog::Instance(); log.Enabled()) {
+		log.Write(r.source == FlipRequestSource::GpuEop ? 0 : 1, r.id, r.flip_arg, r.index,
+		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter());
+	}
 
 	Graphics::RenderDocOnGuestFlip(m_presenter.Renderer());
 
