@@ -4,6 +4,7 @@
 #include "common/abi.h"
 #include "common/common.h"
 #include "common/lruCache.h"
+#include "common/tickHistory.h"
 #include "common/slotVector.h"
 #include "graphics/host_gpu/pageManager.h"
 #include "graphics/host_gpu/regionManager.h"
@@ -201,6 +202,11 @@ private:
 	uint64_t                                          m_total_used_memory  = 0;
 	uint64_t m_gc_freed = 0;
 	uint64_t m_gc_kept  = 0;
+	uint64_t m_gc_emergency_freed = 0;
+	Common::TickHistory m_tick_history;
+	// Over the device budget (a level load outrunning the regular passes): frees every image
+	// unused for 5 s, and GPU-written tiled images unused for 30 s. Caller holds m_lock.
+	void EmergencyCollect(uint64_t tick);
 	uint64_t                                          m_trigger_gc_memory  = 0;
 	uint64_t                                          m_pressure_gc_memory = 1536ull * 1024 * 1024;
 	uint64_t         m_critical_gc_memory     = 3ull * 1024 * 1024 * 1024;

@@ -113,8 +113,21 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 		allocation_info.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
 		result = create();
 	}
+	if (result != vk::Result::eSuccess && usage == MemoryUsage::DeviceLocal) {
+		// Video memory is exhausted outright: system memory is slower for the GPU to read, but
+		// the game keeps running while the collectors free video memory.
+		allocation_info.usage          = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+		allocation_info.preferredFlags = 0;
+		result                         = create();
+		static std::atomic<uint32_t> host_count {0};
+		if (host_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Buffer: %" PRIu64 " bytes placed in system memory (%s)\n", size,
+			            vk::to_string(result).c_str());
+		}
+	}
 	if (result != vk::Result::eSuccess) {
-		std::printf("Buffer: allocation of %" PRIu64 " bytes failed: %s\n", size,
+		std::printf("Buffer: allocation of %" PRIu64 " bytes (usage %d, flags 0x%x) failed: %s\n",
+		            size, static_cast<int>(usage), static_cast<uint32_t>(allocation_info.flags),
 		            vk::to_string(result).c_str());
 		graphics.LogMemoryBudget();
 	}

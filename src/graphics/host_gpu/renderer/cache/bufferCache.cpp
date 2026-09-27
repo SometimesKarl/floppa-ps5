@@ -742,8 +742,11 @@ void BufferCache::RunGarbageCollector() {
 	}
 
 	const bool     aggressive = m_total_used_memory >= m_critical_gc_memory;
+	// Over the device budget a level load is outrunning the regular pass; retire many more.
+	const bool     emergency  = m_graphics.CanReportMemoryUsage() &&
+	                            m_total_used_memory >= m_graphics.GetTotalMemoryBudget();
 	const uint64_t age        = std::min<uint64_t>(aggressive ? 80 : 160, tick);
-	const size_t   limit      = aggressive ? 64 : 32;
+	const size_t   limit      = emergency ? 512 : aggressive ? 64 : 32;
 
 	std::vector<BufferId> dirty_buffers;
 	size_t                retire_count = 0;

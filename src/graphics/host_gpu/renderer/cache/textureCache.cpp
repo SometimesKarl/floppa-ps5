@@ -2161,9 +2161,57 @@ void TextureCache::UnmapMemory(uint64_t address, uint64_t size) {
 	}
 }
 
+void TextureCache::EmergencyCollect(uint64_t tick) {
+	const auto idle_tick  = m_tick_history.TickSecondsAgo(5.0);
+	const auto stale_tick = m_tick_history.TickSecondsAgo(30.0);
+	if (idle_tick == 0) {
+		return;
+	}
+	const auto budget = m_graphics.GetTotalMemoryBudget();
+	const auto target = budget - budget / 16;
+	std::vector<ImageId> candidates;
+	std::vector<size_t>  kept;
+	size_t               scanned = 0;
+	m_lru_cache.ForEachItemBelow(idle_tick, [&](ImageId id) {
+		const auto* owner = m_slot_images.try_get(id);
+		if (owner != nullptr && owner->registered) {
+			const bool tiled_gpu = owner->IsGpuModified() && owner->info.IsTiled() &&
+			                       SafeToDownload(*owner);
+			// A GPU-written tiled image has no download path: dropping it loses what the GPU
+			// wrote, so only images nothing has used for 30 s (a previous level's targets) go.
+			if (owner->depth_id ||
+			    (tiled_gpu && (stale_tick == 0 || m_lru_cache.TickOf(owner->lru_id) > stale_tick))) {
+				kept.push_back(owner->lru_id);
+			} else {
+				candidates.push_back(id);
+			}
+		}
+		return ++scanned >= 8192;
+	});
+	for (const auto id: candidates) {
+		if (m_total_used_memory < target) {
+			break;
+		}
+		auto* owner = m_slot_images.try_get(id);
+		if (owner == nullptr || !owner->registered) {
+			continue;
+		}
+		if (owner->IsGpuModified() && !owner->info.IsTiled() && SafeToDownload(*owner) &&
+		    !DownloadImageMemory(id)) {
+			continue;
+		}
+		FreeImage(id);
+		m_gc_emergency_freed++;
+	}
+	for (const auto lru_id: kept) {
+		m_lru_cache.Touch(lru_id, tick);
+	}
+}
+
 void TextureCache::RunGarbageCollector() {
 	std::scoped_lock lock {m_lock};
 	const uint64_t   tick = m_gc_tick++;
+	m_tick_history.Record(tick);
 	if (m_graphics.CanReportMemoryUsage()) {
 		m_total_used_memory = m_graphics.GetDeviceMemoryUsage();
 	}
@@ -2236,6 +2284,10 @@ void TextureCache::RunGarbageCollector() {
 	if (m_total_used_memory >= m_critical_gc_memory) {
 		collect(true);
 	}
+	if (m_graphics.CanReportMemoryUsage() &&
+	    m_total_used_memory >= m_graphics.GetTotalMemoryBudget()) {
+		EmergencyCollect(tick);
+	}
 	static const bool print_stats = std::getenv("KYTY_MEMORY_STATS") != nullptr;
 	if (print_stats) {
 		static auto last = std::chrono::steady_clock::now();
@@ -2256,13 +2308,14 @@ void TextureCache::RunGarbageCollector() {
 			});
 			std::printf("TextureCache: %" PRIu64 " images %.0f MiB (GPU-written tiled %" PRIu64
 			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
-			            ", kept %" PRIu64 " in 30 s\n",
+			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 " in 30 s\n",
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
-			            m_gc_freed, m_gc_kept);
+			            m_gc_freed, m_gc_kept, m_gc_emergency_freed);
 			std::fflush(stdout);
-			m_gc_freed = 0;
-			m_gc_kept  = 0;
+			m_gc_freed           = 0;
+			m_gc_kept            = 0;
+			m_gc_emergency_freed = 0;
 		}
 	}
 }
