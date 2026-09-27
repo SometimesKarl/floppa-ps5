@@ -961,9 +961,16 @@ bool MaterializeResources(const ResourcePlan& program, const SrtRuntime& runtime
 	}
 	SrtWalker clean(program, CleanRuntime(observed));
 	SrtWalker walker(program, observed, program.clean_flat_slots, &clean);
-	const auto active = clean.FindActiveSources();
-	if (!walker.RefreshFlatBuffer(snapshot.flattened_srt)) {
-		return false;
+	std::span<const uint8_t> active;
+	{
+		KYTY_PROFILER_BLOCK("MaterializeResources: active sources");
+		active = clean.FindActiveSources();
+	}
+	{
+		KYTY_PROFILER_BLOCK("MaterializeResources: flat SRT buffer");
+		if (!walker.RefreshFlatBuffer(snapshot.flattened_srt)) {
+			return false;
+		}
 	}
 	snapshot.uniform_fill = {};
 	const auto& fill = program.uniform_fill;
@@ -988,6 +995,7 @@ bool MaterializeResources(const ResourcePlan& program, const SrtRuntime& runtime
 		value.dword_count = program.descriptor_sources[source].dword_count;
 		return true;
 	};
+	KYTY_PROFILER_BLOCK("MaterializeResources: descriptors");
 	snapshot.buffers.resize(program.info.buffers.size());
 	for (uint32_t i = 0; i < program.info.buffers.size(); ++i) {
 		if (!evaluate(program.info.buffers[i].source, snapshot.buffers[i])) {
