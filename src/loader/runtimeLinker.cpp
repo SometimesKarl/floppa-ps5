@@ -655,6 +655,52 @@ static bool IsReadableRange(uint64_t addr, uint64_t size) {
 	return true;
 }
 
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+// Host faults (for example inside a graphics driver) need the host call chain: unwind from the
+// fault context with the modules' unwind tables and print module+offset per frame, so the
+// emulator frame that made the failing call can be symbolized against the PDB.
+static void PrintHostBacktrace(const void* native_context) {
+	if (native_context == nullptr) {
+		return;
+	}
+	wchar_t* description = nullptr;
+	if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &description)) && description != nullptr) {
+		std::printf("host thread: id=%lu name=%ls\n", GetCurrentThreadId(), description);
+		LocalFree(description);
+	}
+	CONTEXT context = *static_cast<const CONTEXT*>(native_context);
+	std::printf("host backtrace:\n");
+	for (int frame = 0; frame < 64 && context.Rip != 0; frame++) {
+		HMODULE module = nullptr;
+		char    path[MAX_PATH] = "?";
+		if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+		                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		                       reinterpret_cast<LPCSTR>(context.Rip), &module) &&
+		    module != nullptr) {
+			GetModuleFileNameA(module, path, sizeof(path));
+		}
+		const char* name = std::strrchr(path, '\\');
+		std::printf("  #%02d %016" PRIx64 " %s+0x%" PRIx64 "\n", frame,
+		            static_cast<uint64_t>(context.Rip), name != nullptr ? name + 1 : path,
+		            static_cast<uint64_t>(context.Rip - reinterpret_cast<uint64_t>(module)));
+		DWORD64 image_base = 0;
+		auto*   entry      = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
+		if (entry == nullptr) {
+			if (!IsReadableRange(context.Rsp, sizeof(uint64_t))) {
+				break;
+			}
+			context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
+			context.Rsp += sizeof(uint64_t);
+			continue;
+		}
+		void*   handler_data = nullptr;
+		DWORD64 establisher  = 0;
+		RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context.Rip, entry, &context, &handler_data,
+		                 &establisher, nullptr);
+	}
+}
+#endif
+
 static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exception_info) {
 	const auto* info = &exception_info;
 
@@ -711,6 +757,9 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 			}
 			std::printf("\n");
 		}
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+		PrintHostBacktrace(info->native_context);
+#endif
 		std::fflush(stdout);
 	}
 	EXIT("Unhandled host exception: type=%u code=%u pc=0x%016" PRIx64
