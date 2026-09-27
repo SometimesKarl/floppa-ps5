@@ -119,6 +119,15 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout                      destinat
                                    vk::AccessFlags2                     destination_access,
                                    vk::PipelineStageFlags2              destination_stage,
                                    std::optional<ImageSubresourceRange> range) {
+	Barriers barriers;
+	AppendBarriers(barriers, destination_layout, destination_access, destination_stage, range);
+	return barriers;
+}
+
+void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layout,
+                           vk::AccessFlags2                     destination_access,
+                           vk::PipelineStageFlags2              destination_stage,
+                           std::optional<ImageSubresourceRange> range) {
 	auto& state              = backing.state;
 	auto& subresource_states = backing.subresource_states;
 	if (range && info.IsVolume()) {
@@ -131,7 +140,6 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout                      destinat
 	              range->base_layer != 0 || range->layer_count != info.resources.layers);
 	const bool has_subresource_states = !subresource_states.empty();
 
-	Barriers barriers;
 	if (partial || has_subresource_states) {
 		if (!has_subresource_states) {
 			subresource_states.resize(info.resources.levels * info.resources.layers, state);
@@ -185,7 +193,7 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout                      destinat
 		const bool     repeated_write = static_cast<bool>(state.access_mask & write_access);
 		if (state.layout == destination_layout && state.access_mask == destination_access &&
 		    !repeated_write) {
-			return {};
+			return;
 		}
 
 		vk::ImageMemoryBarrier2 barrier {};
@@ -207,7 +215,6 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout                      destinat
 	}
 
 	state = {destination_stage, destination_access, destination_layout};
-	return barriers;
 }
 
 void Image::Transit(vk::ImageLayout destination_layout, vk::AccessFlags2 destination_access,
@@ -223,8 +230,10 @@ void Image::Transit(vk::ImageLayout destination_layout, vk::AccessFlags2 destina
 		destination_stage |=
 		    vk::PipelineStageFlagBits2::eAllGraphics | vk::PipelineStageFlagBits2::eComputeShader;
 	}
-	const auto barriers =
-	    GetBarriers(destination_layout, destination_access, destination_stage, range);
+	// Reused across calls: images transition several times per draw on the GPU thread.
+	thread_local Barriers barriers;
+	barriers.clear();
+	AppendBarriers(barriers, destination_layout, destination_access, destination_stage, range);
 	if (barriers.empty()) {
 		return;
 	}

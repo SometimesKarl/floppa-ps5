@@ -95,6 +95,9 @@ private:
 
 	using ImageIds       = InlinePageOwnerList<ImageId, 16>;
 	using ImagePageTable = MultiLevelPageTable<ImageIds, 20, 40, 10>;
+	// Query results: a texture lookup in ASTRO BOT often overlaps more than 16 images, and the
+	// page-owner capacity made ~10k lookups a second spill to the heap.
+	using ImageQueryIds = InlinePageOwnerList<ImageId, 128>;
 
 	// Callers have validated the nonempty 40-bit range with TryGetPageRange.
 	template <typename Func>
@@ -134,7 +137,7 @@ private:
 	[[nodiscard]] bool               SafeToDownload(const Image& image);
 
 	// Caller holds m_lock; it also serializes the per-image query epoch.
-	[[nodiscard]] ImageIds      FindImagesInRegion(uint64_t address, uint64_t size,
+	[[nodiscard]] ImageQueryIds FindImagesInRegion(uint64_t address, uint64_t size,
 	                                               bool page_overlap) const;
 	[[nodiscard]] OverlapResult ResolveOverlap(const ImageInfo& requested, BindingType binding,
 	                                           ImageId cached, ImageId merged);

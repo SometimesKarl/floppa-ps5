@@ -464,8 +464,19 @@ BufferId BufferCache::CreateBuffer(uint64_t vaddr, uint64_t size) {
 
 bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t size, bool is_written,
                                     bool is_texel_buffer) {
-	std::vector<vk::BufferCopy> copies;
-	uint64_t                    total_size = 0;
+	// The copy list is reused on this thread (uploads run hundreds of times a second); a
+	// nested call gets its own.
+	thread_local std::vector<vk::BufferCopy> reused;
+	thread_local uint32_t                    depth = 0;
+	std::vector<vk::BufferCopy>              nested;
+	auto&                                    copies = depth == 0 ? reused : nested;
+	copies.clear();
+	depth++;
+	struct DepthGuard {
+		uint32_t& depth;
+		~DepthGuard() { depth--; }
+	} depth_guard {depth};
+	uint64_t total_size = 0;
 	vk::Buffer                  source;
 	m_memory_tracker.ForEachUploadRange(
 	    vaddr, size, is_written,

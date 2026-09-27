@@ -61,6 +61,9 @@ public:
 	                                   vk::AccessFlags2                     destination_access,
 	                                   vk::PipelineStageFlags2              destination_stage,
 	                                   std::optional<ImageSubresourceRange> range);
+	void AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layout,
+	                    vk::AccessFlags2 destination_access, vk::PipelineStageFlags2 destination_stage,
+	                    std::optional<ImageSubresourceRange> range);
 	void Transit(vk::ImageLayout destination_layout, vk::AccessFlags2 destination_access,
 	             std::optional<ImageSubresourceRange> range, vk::CommandBuffer command_buffer);
 	void Upload(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffer, uint64_t offset,
@@ -153,6 +156,7 @@ public:
 	uint64_t         track_addr_end = 0;
 	ImageId          depth_id {};
 	uint64_t         tick_accessed_last = 0;
+	uint64_t         lru_touch_tick     = UINT64_MAX;
 	size_t           lru_id             = 0;
 	// A view outside the view-format list was needed; the texture cache recreates the image
 	// without the list on its next lookup.

@@ -330,7 +330,10 @@ void TextureCache::FreeImage(ImageId id) {
 }
 
 void TextureCache::TouchImage(Image& image) {
-	if (image.registered) {
+	// Images are looked up many times per draw; the LRU list node is only worth visiting once
+	// per collection tick.
+	if (image.registered && image.lru_touch_tick != m_gc_tick) {
+		image.lru_touch_tick = m_gc_tick;
 		m_lru_cache.Touch(image.lru_id, m_gc_tick);
 	}
 }
@@ -459,7 +462,7 @@ void TextureCache::TrackImageDownload(ImageId id, Image& image) {
 	}
 }
 
-TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64_t size,
+TextureCache::ImageQueryIds TextureCache::FindImagesInRegion(uint64_t address, uint64_t size,
                                                         bool page_overlap) const {
 	ImagePageTable::PageRange pages {};
 	if (!ImagePageTable::TryGetPageRange(address, size, pages)) {
@@ -472,7 +475,7 @@ TextureCache::ImageIds TextureCache::FindImagesInRegion(uint64_t address, uint64
 		query_epoch = ++m_image_query_epoch;
 	}
 
-	ImageIds result;
+	ImageQueryIds result;
 	ForEachPage(address, size, [&](uint64_t page) {
 		const auto* owners = m_image_page_table.Find(page);
 		if (owners == nullptr) {
@@ -1557,7 +1560,7 @@ ImageId TextureCache::FindImageFromRange(uint64_t address, uint64_t size, bool e
 		return {};
 	}
 	std::scoped_lock lock {m_lock};
-	ImageIds         matches;
+	ImageQueryIds    matches;
 	for (const auto id: FindImagesInRegion(address, size, false)) {
 		auto owner = m_slot_images.try_get(id);
 		if (owner == nullptr || owner->info.data.address != address) {
