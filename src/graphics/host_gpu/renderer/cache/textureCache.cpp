@@ -910,10 +910,14 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId source_id) {
 // alternates formats does not trigger repeated copies.
 ImageId TextureCache::RecreateWithUnrestrictedViews(ImageId source_id) {
 	KYTY_PROFILER_FUNCTION();
+	// The address and running count tell one-off recreations from an image rebuilt repeatedly.
 	static std::atomic<uint32_t> log_count {0};
-	if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
-		std::printf("TextureCache: recreating a format %d image for other view formats\n",
-		            static_cast<int>(m_slot_images[source_id].info.pixel_format));
+	const auto                   count = log_count.fetch_add(1, std::memory_order_relaxed) + 1;
+	if (count <= 16 || std::has_single_bit(count)) {
+		const auto& info = m_slot_images[source_id].info;
+		std::printf("TextureCache: recreating a format %d image at 0x%016" PRIx64
+		            " for other view formats (#%u)\n",
+		            static_cast<int>(info.pixel_format), info.data.address, count);
 	}
 	RefreshCopySource(source_id);
 	auto info                      = m_slot_images[source_id].info;
