@@ -12,7 +12,7 @@ namespace Libs::Graphics::ShaderPrecompile {
 namespace {
 
 constexpr char     Magic[8]      = {'K', 'Y', 'T', 'Y', 'S', 'H', 'D', 'R'};
-constexpr uint32_t FormatVersion = 3; // 3: static key per record
+constexpr uint32_t FormatVersion = 4; // 3: static key per record; 4: tess, centroid, float mode
 
 std::mutex            g_mutex;
 std::ofstream         g_out;
@@ -56,6 +56,7 @@ void PutInfo(std::vector<uint8_t>& out, const ShaderVertexInputInfo& info) {
 	PutPod(out, info.fetch_external);
 	PutPod(out, info.fetch_embedded);
 	PutPod(out, info.wave_size);
+	PutPod(out, info.tess);
 }
 
 void PutInfo(std::vector<uint8_t>& out, const ShaderPixelInputInfo& info) {
@@ -81,6 +82,7 @@ void PutInfo(std::vector<uint8_t>& out, const ShaderPixelInputInfo& info) {
 	PutPod(out, info.ps_sample_shading);
 	PutPod(out, info.ps_early_z);
 	PutPod(out, info.ps_execute_on_noop);
+	PutPod(out, info.ps_perspective_centroid_vgpr);
 }
 
 void PutInfo(std::vector<uint8_t>& out, const ShaderComputeInputInfo& info) {
@@ -95,6 +97,7 @@ void PutInfo(std::vector<uint8_t>& out, const ShaderComputeInputInfo& info) {
 	PutPod(out, info.thread_ids_num);
 	PutPod(out, info.workgroup_register);
 	PutPod(out, info.tg_size_en);
+	PutPod(out, info.float_mode);
 }
 
 template <typename Info>
@@ -275,6 +278,7 @@ void TakeInfo(Reader& r, ShaderVertexInputInfo& info) {
 	info.fetch_external      = r.Pod<bool>();
 	info.fetch_embedded      = r.Pod<bool>();
 	info.wave_size           = r.Pod<uint32_t>();
+	r.Into(info.tess);
 }
 
 void TakeInfo(Reader& r, ShaderPixelInputInfo& info) {
@@ -300,6 +304,7 @@ void TakeInfo(Reader& r, ShaderPixelInputInfo& info) {
 	info.ps_sample_shading            = r.Pod<bool>();
 	info.ps_early_z                   = r.Pod<bool>();
 	info.ps_execute_on_noop           = r.Pod<bool>();
+	r.Into(info.ps_perspective_centroid_vgpr);
 }
 
 void TakeInfo(Reader& r, ShaderComputeInputInfo& info) {
@@ -314,6 +319,7 @@ void TakeInfo(Reader& r, ShaderComputeInputInfo& info) {
 	info.thread_ids_num             = r.Pod<int>();
 	info.workgroup_register         = r.Pod<int>();
 	info.tg_size_en                 = r.Pod<bool>();
+	r.Into(info.float_mode);
 }
 
 } // namespace
