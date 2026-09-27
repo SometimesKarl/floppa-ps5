@@ -582,6 +582,9 @@ struct ResourcePlan {
 	// then evaluates through srt_nodes instead of re-decoding IR values at every node.
 	bool                                               srt_nodes_enabled = false;
 	mutable std::vector<SrtNode>                       srt_nodes;
+	// Decoded roots (SrtWalker::DecodeRoot) of descriptor dwords and flat-buffer reads.
+	mutable std::vector<std::array<uint64_t, 8>>       descriptor_roots;
+	mutable std::vector<uint64_t>                      flat_roots;
 };
 
 struct Program: ResourcePlan {

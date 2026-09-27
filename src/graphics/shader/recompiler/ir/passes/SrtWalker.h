@@ -79,6 +79,9 @@ private:
 	bool EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result);
 	void DecodeNode(uint32_t index, const Inst& inst);
 	bool NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result);
+	uint64_t DecodeRoot(Value value);
+	bool     EvaluateRoot(uint64_t root, uint32_t& result);
+	bool     EvaluateFlatRead(size_t read, uint32_t& result);
 
 	const ResourcePlan&              m_program;
 	SrtRuntime                      m_runtime;

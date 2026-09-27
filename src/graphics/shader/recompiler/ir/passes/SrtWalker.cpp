@@ -823,7 +823,7 @@ void SrtWalker::DecodeNode(uint32_t index, const Inst& inst) {
 		}
 		case ValueOpcode::LoadAddressU32:
 		case ValueOpcode::ReadConstBuffer:
-			if (count == 2 && first_is_inst && IsRawRead(m_program, inst)) {
+			if (count >= 2 && first_is_inst && IsRawRead(m_program, inst)) {
 				node.aux  = inst.Flags<MemoryFlags>().index;
 				node.kind = 1;
 			}
@@ -1510,6 +1510,75 @@ bool SrtWalker::EvaluateInst(const Inst& inst, uint64_t& result) {
 	}
 	return false;
 }
+namespace {
+
+// Root encoding in the per-plan root caches; 0 means not decoded yet.
+constexpr uint64_t RootImmediate = uint64_t {1} << 63u; // low 32 bits: the value
+constexpr uint64_t RootInvalid   = uint64_t {1} << 62u;
+constexpr uint64_t RootNode      = uint64_t {1} << 61u; // low 32 bits: the node index
+
+} // namespace
+
+uint64_t SrtWalker::DecodeRoot(Value value) {
+	value = value.Resolve();
+	if (value.IsImmediate()) {
+		switch (value.GetType()) {
+			case Type::U1: return RootImmediate | value.U1();
+			case Type::U8: return RootImmediate | value.U8();
+			case Type::U16: return RootImmediate | value.U16();
+			case Type::U32: return RootImmediate | value.U32();
+			case Type::U64: return RootImmediate | static_cast<uint32_t>(value.U64());
+			case Type::F32: return RootImmediate | std::bit_cast<uint32_t>(value.F32Value());
+			default: return RootInvalid;
+		}
+	}
+	const auto* inst = value.TryInstruction();
+	if (inst == nullptr) {
+		return RootInvalid;
+	}
+	const auto index = inst->EvaluationIndex(m_program.evaluation_value_count);
+	auto&      nodes = m_program.srt_nodes;
+	if (nodes.size() <= index) {
+		nodes.resize(m_program.evaluation_value_count);
+	}
+	if (nodes[index].inst == nullptr) {
+		nodes[index].inst = inst;
+	}
+	return RootNode | index;
+}
+
+bool SrtWalker::EvaluateRoot(uint64_t root, uint32_t& result) {
+	if ((root & RootImmediate) != 0) {
+		result = static_cast<uint32_t>(root);
+		return true;
+	}
+	if ((root & RootNode) == 0) {
+		return false;
+	}
+	const auto index = static_cast<uint32_t>(root);
+	uint64_t   wide  = 0;
+	if (!EvaluateIndex(index, *m_program.srt_nodes[index].inst, wide)) {
+		return false;
+	}
+	result = static_cast<uint32_t>(wide);
+	return true;
+}
+
+bool SrtWalker::EvaluateFlatRead(size_t read, uint32_t& result) {
+	const auto& value = m_program.srt_reads[read].value;
+	if (!m_fast) {
+		return Evaluate(value, result);
+	}
+	auto& roots = m_program.flat_roots;
+	if (roots.size() < m_program.srt_reads.size()) {
+		roots.resize(m_program.srt_reads.size(), 0);
+	}
+	if (roots[read] == 0) {
+		roots[read] = DecodeRoot(value);
+	}
+	return EvaluateRoot(roots[read], result);
+}
+
 bool SrtWalker::EvaluateDescriptor(uint32_t source, DescriptorValue& result) {
 	if (source >= m_program.descriptor_sources.size()) {
 		return false;
@@ -1517,8 +1586,26 @@ bool SrtWalker::EvaluateDescriptor(uint32_t source, DescriptorValue& result) {
 	const auto& descriptor = m_program.descriptor_sources[source];
 	result = {};
 	result.dword_count = descriptor.dword_count;
-	for (uint32_t index = 0; index < descriptor.dword_count; ++index) {
-		if (!Evaluate(descriptor.dwords[index], result.dwords[index])) {
+	if (!m_fast) {
+		for (uint32_t index = 0; index < descriptor.dword_count; ++index) {
+			if (!Evaluate(descriptor.dwords[index], result.dwords[index])) {
+				return false;
+			}
+		}
+		return true;
+	}
+	// Roots are decoded once per plan: resolving the IR value of every descriptor dword on
+	// every draw was a large share of the walk.
+	auto& roots = m_program.descriptor_roots;
+	if (roots.size() < m_program.descriptor_sources.size()) {
+		roots.resize(m_program.descriptor_sources.size(), std::array<uint64_t, 8> {});
+	}
+	auto& decoded = roots[source];
+	for (uint32_t index = 0; index < descriptor.dword_count && index < decoded.size(); ++index) {
+		if (decoded[index] == 0) {
+			decoded[index] = DecodeRoot(descriptor.dwords[index]);
+		}
+		if (!EvaluateRoot(decoded[index], result.dwords[index])) {
 			return false;
 		}
 	}
@@ -1568,14 +1655,16 @@ bool SrtWalker::RefreshFlatBuffer(std::vector<uint32_t>& flat) {
 		return false;
 	}
 	flat.resize(m_program.srt_reads.size());
-	for (const auto& read: m_program.srt_reads) {
-		const bool clean = read.flat_offset < m_clean_flat_slots.size() &&
+	for (size_t index = 0; index < m_program.srt_reads.size(); index++) {
+		const auto& read  = m_program.srt_reads[index];
+		const bool  clean = read.flat_offset < m_clean_flat_slots.size() &&
 		                   m_clean_flat_slots[read.flat_offset] != 0u;
 		if (clean && (m_clean_evaluator == nullptr || m_runtime.read_specialization_memory == nullptr)) {
 			return false;
 		}
 		auto& evaluator = clean ? *m_clean_evaluator : *this;
-		if (read.flat_offset >= flat.size() || !evaluator.Evaluate(read.value, flat[read.flat_offset])) {
+		if (read.flat_offset >= flat.size() ||
+		    !evaluator.EvaluateFlatRead(index, flat[read.flat_offset])) {
 			return false;
 		}
 	}
