@@ -5,6 +5,7 @@
 #include "common/file.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
+#include "common/timer.h"
 #include "graphics/guest_gpu/hardwareContext.h"
 #include "graphics/host_gpu/renderer/colorRenderTarget.h"
 #include "graphics/host_gpu/renderer/debug.h"
@@ -40,6 +41,22 @@
 namespace Libs::Graphics {
 
 namespace {
+
+// KYTY_COMPILE_LOG=1 prints one line per shader compile and pipeline creation with the time of
+// each step, stamped with the QPC so the frame log's hitches can be attributed to them.
+bool CompileLogEnabled() {
+	static const bool enabled = [] {
+		const char* value = std::getenv("KYTY_COMPILE_LOG");
+		return value != nullptr && value[0] == '1';
+	}();
+	return enabled;
+}
+
+double QpcMs(uint64_t begin, uint64_t end) {
+	static const double ms_per_tick =
+	    1000.0 / static_cast<double>(Common::Timer::QueryPerformanceFrequency());
+	return static_cast<double>(end - begin) * ms_per_tick;
+}
 
 vk::PolygonMode ResolvePolygonMode(const HW::ModeControl& mode, bool cull_front, bool cull_back) {
 	// CxPrimitiveSetup::PolygonMode disables both per-face modes when it is zero.
@@ -392,8 +409,10 @@ struct PipelineCache::ProgramCache {
 			case ShaderType::Compute: stage_name = "cs"; break;
 			default: EXIT("invalid pipeline shader stage\n");
 		}
+		const auto compile_begin = Common::Timer::QueryPerformanceCounter();
 		auto result = ShaderRecompiler::CompileProgram(std::move(translated), options,
 		                                               specialization, push_data_start_dword);
+		const auto compile_end = Common::Timer::QueryPerformanceCounter();
 		DumpShaderOriginal(stage_name, options.shader_hash, params.code, result.decoded_dump);
 		if (!ValidateShaderSpirv(options.dump_label, options.shader_hash, result.spirv)) {
 			DumpShaderSpirv(stage_name, options.shader_hash, result.spirv);
@@ -401,9 +420,18 @@ struct PipelineCache::ProgramCache {
 			     options.shader_hash);
 		}
 		DumpShaderSpirv(stage_name, options.shader_hash, result.spirv);
+		const auto validate_end = Common::Timer::QueryPerformanceCounter();
 
 		const auto module = CompileSPV(result.spirv, device);
 		EXIT_IF(module == nullptr);
+		if (CompileLogEnabled()) {
+			const auto module_end = Common::Timer::QueryPerformanceCounter();
+			std::printf("compile qpc=%" PRIu64 " stage=%s hash=%016" PRIx64
+			            " translate_ms=%.2f spirv_ms=%.2f validate_ms=%.2f module_ms=%.2f words=%zu\n",
+			            module_end, stage_name, options.shader_hash, last_translate_ms,
+			            QpcMs(compile_begin, compile_end), QpcMs(compile_end, validate_end),
+			            QpcMs(validate_end, module_end), result.spirv.size());
+		}
 		if (options.dump_ir) {
 			LOGF("%s SPIR-V words=%" PRIu64 " wave_size=%u\n", options.dump_label,
 			     static_cast<uint64_t>(result.spirv.size()), options.wave_size);
@@ -506,7 +534,9 @@ struct PipelineCache::ProgramCache {
 		} else {
 			options.wave_size = input_info.wave_size;
 		}
+		const auto translate_begin = Common::Timer::QueryPerformanceCounter();
 		auto translated = ShaderRecompiler::TranslateProgram(params.code, options);
+		last_translate_ms = QpcMs(translate_begin, Common::Timer::QueryPerformanceCounter());
 		if (translated.skip_dispatch) {
 			entry = programs.try_emplace(lookup_key, ShaderRecompiler::IR::ResourcePlan {}).first;
 			entry->second.skip_dispatch = true;
@@ -558,6 +588,7 @@ struct PipelineCache::ProgramCache {
 	uint64_t                                                    memo_clock = 0;
 	vk::Device                                                  device;
 	uint64_t                                                    next_shader_id = 0;
+	double                                                      last_translate_ms = 0;
 };
 
 PipelineCache::PipelineCache(GraphicContext& graphics)
@@ -978,8 +1009,15 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 
 	auto cached = std::make_unique<Pipeline>();
 	LogPipelineTrace("CreatePipelineInternal begin", vs_id, ps_id);
+	const auto create_begin = Common::Timer::QueryPerformanceCounter();
 	CreatePipelineInternal(m_graphics, *cached, rendering, key.vertex_input, vertex_info,
 	                       ps_input_info, programs, static_params, m_driver_cache);
+	if (CompileLogEnabled()) {
+		const auto create_end = Common::Timer::QueryPerformanceCounter();
+		std::printf("pipeline qpc=%" PRIu64 " kind=gfx vs=%" PRIu64 " ps=%" PRIu64 " ms=%.2f total=%zu\n",
+		            create_end, vs_id, ps_id, QpcMs(create_begin, create_end),
+		            m_graphics_pipelines.size() + 1);
+	}
 	LogPipelineTrace("CreatePipelineInternal done", vs_id, ps_id);
 
 	EXIT_NOT_IMPLEMENTED(cached->pipeline == nullptr);
@@ -1010,7 +1048,14 @@ PipelineCache::GetComputePipeline(const ShaderComputeInputInfo& input_info,
 	}
 
 	auto cached = std::make_unique<Pipeline>();
+	const auto create_begin = Common::Timer::QueryPerformanceCounter();
 	CreatePipelineInternal(m_graphics, *cached, input_info, compute_program.module, m_driver_cache);
+	if (CompileLogEnabled()) {
+		const auto create_end = Common::Timer::QueryPerformanceCounter();
+		std::printf("pipeline qpc=%" PRIu64 " kind=cs cs=%" PRIu64 " ms=%.2f total=%zu\n", create_end,
+		            compute_program.id, QpcMs(create_begin, create_end),
+		            m_compute_pipelines.size() + 1);
+	}
 
 	EXIT_NOT_IMPLEMENTED(cached->pipeline == nullptr);
 	EXIT_NOT_IMPLEMENTED(cached->pipeline_layout == nullptr);
