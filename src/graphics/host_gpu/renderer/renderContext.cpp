@@ -13,6 +13,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
+#include <vector>
 
 namespace Libs::Graphics {
 
@@ -167,6 +169,19 @@ void RenderContext::RunGarbageCollector() {
 			            "barrier batches %.0f\n",
 			            draws / seconds, dispatches / seconds, begins / seconds, ends / seconds,
 			            global / seconds, redundant / seconds, images / seconds);
+			{
+				std::scoped_lock lock {RenderStats::g_target_mutex};
+				std::vector<std::pair<uint64_t, uint64_t>> sizes(RenderStats::g_target_sizes.begin(),
+				                                                 RenderStats::g_target_sizes.end());
+				RenderStats::g_target_sizes.clear();
+				std::ranges::sort(sizes, [](const auto& a, const auto& b) { return a.second > b.second; });
+				std::printf("GPU stats: color targets by binds:");
+				for (size_t i = 0; i < sizes.size() && i < 6; i++) {
+					std::printf(" %ux%u %.0f/s", static_cast<uint32_t>(sizes[i].first >> 32u),
+					            static_cast<uint32_t>(sizes[i].first), sizes[i].second / seconds);
+				}
+				std::printf("\n");
+			}
 			std::fflush(stdout);
 		}
 	}

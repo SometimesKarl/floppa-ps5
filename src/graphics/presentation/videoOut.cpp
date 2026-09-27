@@ -1942,6 +1942,11 @@ KYTY_SYSV_ABI int VideoOutGetOutputStatus(int handle, VideoOutOutputStatus* stat
 	status->reserved[1] = 0;
 	status->reserved[2] = 0;
 	ctx->mutex.Unlock();
+	static std::atomic<uint32_t> reports {0};
+	if (reports.fetch_add(1, std::memory_order_relaxed) < 3) {
+		std::printf("VideoOut: output status reported: resolution %u (1 = 1080p, 2 = 4K), refresh %u\n",
+		            static_cast<uint32_t>(status->resolution), static_cast<uint32_t>(status->refreshRate));
+	}
 
 	return OK;
 }

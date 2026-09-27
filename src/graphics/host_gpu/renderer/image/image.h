@@ -52,6 +52,11 @@ public:
 	~Image();
 	KYTY_CLASS_NO_COPY(Image);
 
+	// False when video and system memory both refused the image; the texture cache then frees
+	// idle images and creates it again.
+	[[nodiscard]] bool Allocated() const noexcept {
+		return info.pixel_format == vk::Format::eUndefined || backing.image != nullptr;
+	}
 	[[nodiscard]] vk::ImageView FindView(const ImageViewInfo& view_info);
 	// Whether a view may use this format. Images without a view-format list allow every
 	// compatible format.
@@ -156,6 +161,10 @@ public:
 	uint64_t         track_addr_end = 0;
 	ImageId          depth_id {};
 	uint64_t         tick_accessed_last = 0;
+	// Guest frames this image was last bound as a render target in (UINT64_MAX: never): a target
+	// drawn every frame can miss one draw while its pipeline compiles; one drawn once cannot.
+	uint64_t         target_frame      = UINT64_MAX;
+	uint64_t         prev_target_frame = UINT64_MAX;
 	uint64_t         lru_touch_tick     = UINT64_MAX;
 	size_t           lru_id             = 0;
 	// A view outside the view-format list was needed; the texture cache recreates the image

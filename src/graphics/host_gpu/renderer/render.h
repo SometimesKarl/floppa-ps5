@@ -225,6 +225,12 @@ private:
 	                                              uint32_t render_target_slice_offset);
 	void                      BindImage(ImageId id, bool storage);
 	void                      BindRenderTarget(ImageId id);
+	// Whether every target of the draw was also drawn into in the last frames, so the draw may
+	// be skipped while its pipeline compiles (a pass redrawn every frame shows it a frame late
+	// instead of stalling; a target drawn once must not miss anything).
+	[[nodiscard]] bool        TargetsDrawnEveryFrame(const RenderColorInfo* colors,
+	                                                 uint32_t               color_count,
+	                                                 const RenderDepthInfo& depth);
 	void                      ResetBindings();
 	[[nodiscard]] bool        TryConsumeComputeMetaClear(const ShaderComputeInputInfo& input,
 	                                                     const CommandBuffer&          buffer);

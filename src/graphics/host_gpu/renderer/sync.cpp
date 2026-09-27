@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/sync.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/assert.h"
 #include "common/common.h"
@@ -165,6 +166,7 @@ uint64_t PrepareVideoOutFlip(CommandBuffer& buffer, int handle, int index, int f
 		    video_out.SubmitFlipFromGpu(buffer, handle, index, flip_mode, flip_arg, request_id);
 		if (result == OK) {
 			EXIT_IF(request_id == 0);
+			RenderStats::Count(RenderStats::g_guest_frames);
 			return request_id;
 		}
 		if (result != VideoOut::VIDEO_OUT_ERROR_FLIP_QUEUE_FULL) {

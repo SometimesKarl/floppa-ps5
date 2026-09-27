@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <xxhash.h>
 
 namespace Libs::Graphics {
@@ -756,9 +757,11 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	}
 
 	if (!graphics.CreateImage(create, backing)) {
-		EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
-		     create.extent.width, create.extent.height, create.extent.depth,
-		     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		// The texture cache frees idle images and creates this one again (see Allocated()).
+		std::printf("Image: %ux%ux%u format=%d layers=%u levels=%u could not be allocated\n",
+		            create.extent.width, create.extent.height, create.extent.depth,
+		            static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		return;
 	}
 	SetVulkanObjectNameF(
 	    graphics.device, backing.image,

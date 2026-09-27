@@ -708,16 +708,19 @@ namespace {
 // Opt-in: a draw skipped while its pipeline compiles is never redrawn, and ASTRO BOT renders
 // some textures once (terrain materials): skipping left the desert sand flat yellow and rocks
 // black for the rest of the session. KYTY_ASYNC_PIPELINES=1 trades that risk for no stalls.
+// On by default: only draws into targets redrawn every frame are deferred (see
+// RenderExecutor::TargetsDrawnEveryFrame); KYTY_ASYNC_PIPELINES=0 compiles every pipeline in
+// place.
 bool AsyncPipelinesEnabled() {
 	const char* value = std::getenv("KYTY_ASYNC_PIPELINES");
-	return value != nullptr && value[0] == '1';
+	return value == nullptr || value[0] != '0';
 }
 
 uint32_t CompileWorkerCount() {
 	if (const char* value = std::getenv("KYTY_PIPELINE_WORKERS"); value != nullptr) {
 		return std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1, 8);
 	}
-	return std::clamp<uint32_t>(std::thread::hardware_concurrency() / 4, 1, 3);
+	return std::clamp<uint32_t>(std::thread::hardware_concurrency() / 3, 1, 4);
 }
 
 } // namespace
@@ -1182,7 +1185,7 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
     std::span<const RenderColorInfo> colors, const RenderDepthInfo& depth,
     std::span<const ShaderVertexInputInfo> vertex_info, CommandBuffer& command,
     const ShaderPixelInputInfo* ps_input_info, vk::PrimitiveTopology topology,
-    bool primitive_restart_enable, const GraphicsPrograms& programs) {
+    bool primitive_restart_enable, const GraphicsPrograms& programs, bool may_defer) {
 	const auto& vs_input_info  = vertex_info.front();
 	const auto& vertex_program = programs.vertex[0];
 	const auto& pixel_program  = programs.pixel;
@@ -1319,7 +1322,15 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 	}
 
 	if (auto iter = m_graphics_pipelines.find(key); iter != m_graphics_pipelines.end()) {
-		return *iter->second;
+		auto& found = *iter->second;
+		if (!may_defer && !found.ready.load(std::memory_order_acquire)) {
+			// A draw that must not be skipped needs a pipeline a worker is still compiling.
+			KYTY_PROFILER_BLOCK("PipelineCache: wait for a background compile");
+			while (!found.ready.load(std::memory_order_acquire)) {
+				std::this_thread::sleep_for(std::chrono::microseconds(200));
+			}
+		}
+		return found;
 	}
 
 	if (graphics_debug_dump_enabled()) {
@@ -1338,7 +1349,7 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 	auto       build = PrepareGraphicsPipeline(m_graphics, *cached, rendering, key.vertex_input,
 	                                           vertex_info, ps_input_info, programs, static_params);
 	bool       deferred = false;
-	if (m_async_pipelines) {
+	if (m_async_pipelines && may_defer) {
 		// A driver-cache hit takes ~0.2 ms: create it now so the draw is not skipped. A real
 		// compile (0.1-4 s) goes to a worker; until it finishes, draws using it are skipped
 		// instead of the whole frame stalling behind the driver.

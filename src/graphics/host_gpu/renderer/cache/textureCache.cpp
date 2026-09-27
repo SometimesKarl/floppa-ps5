@@ -247,9 +247,28 @@ bool TextureCache::SafeToDownload(const Image& image) {
 	return !m_buffer_cache.HasGpuDirtyBytes(range.address, range.size);
 }
 
-ImageId TextureCache::InsertImage(const ImageInfo& info) {
+ImageId TextureCache::InsertImage(const ImageInfo& info, ImageId protect) {
 	KYTY_PROFILER_FUNCTION();
-	const auto id = m_slot_images.insert(m_graphics, m_scheduler, info);
+	auto id = m_slot_images.insert(m_graphics, m_scheduler, info);
+	// A level load can fill video memory faster than the collector frees it, and with video
+	// memory full the driver may refuse system memory too (ASTRO BOT exited loading Sky Garden).
+	// Free idle images and try again instead of ending the game.
+	constexpr uint64_t MiB = 1024ull * 1024;
+	for (uint32_t attempt = 0; !m_slot_images[id].Allocated(); attempt++) {
+		m_slot_images.erase(id);
+		if (attempt == 3) {
+			EXIT("TextureCache: no memory for a %ux%ux%u image (format %d) after freeing idle "
+			     "images\n",
+			     info.extent.width, info.extent.height, info.extent.depth,
+			     static_cast<int>(info.pixel_format));
+		}
+		const auto needed = std::max<uint64_t>(info.data.size, 64 * MiB) + 512 * MiB * (attempt + 1);
+		const auto freed  = ReclaimForAllocation(needed, protect, attempt > 0);
+		std::printf("TextureCache: freed %llu MiB of idle images for a %ux%u image (attempt %u)\n",
+		            static_cast<unsigned long long>(freed / MiB), info.extent.width,
+		            info.extent.height, attempt + 1);
+		id = m_slot_images.insert(m_graphics, m_scheduler, info);
+	}
 	if (!info.data.Empty()) {
 		RegisterImage(id);
 	}
@@ -298,7 +317,65 @@ void TextureCache::UnregisterImage(ImageId id) {
 	image.registered = false;
 }
 
-void TextureCache::DeleteImage(ImageId id) {
+uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive) {
+	KYTY_PROFILER_FUNCTION();
+	const auto current = m_scheduler.CurrentTick();
+	// A GPU-written tiled image has no download path: dropping it loses what the GPU wrote, so
+	// only images unused for a while (a previous level's targets) go.
+	const auto           stale_tick = m_tick_history.TickSecondsAgo(aggressive ? 1.0 : 3.0);
+	std::vector<ImageId> victims;
+	uint64_t             freed = 0;
+	m_lru_cache.ForEachItemBelow(m_gc_tick, [&](ImageId id) {
+		const auto* image = m_slot_images.try_get(id);
+		// Images looked up for the command buffer being recorded (this draw's other textures and
+		// targets) stay: the draw holds their views.
+		if (image == nullptr || !image->registered || id == protect || image->depth_id ||
+		    image->tick_accessed_last + 1 >= current || image->binding.is_bound ||
+		    image->binding.is_target) {
+			return false;
+		}
+		if (image->IsGpuModified() && (image->info.IsTiled() || !SafeToDownload(*image)) &&
+		    (stale_tick == 0 || m_lru_cache.TickOf(image->lru_id) > stale_tick)) {
+			return false;
+		}
+		victims.push_back(id);
+		freed += image->AccountedSize();
+		return freed >= needed;
+	});
+	std::vector<ImageId> erased;
+	erased.reserve(victims.size());
+	for (const auto id: victims) {
+		auto* image = m_slot_images.try_get(id);
+		if (image == nullptr || !image->registered) {
+			continue;
+		}
+		if (image->IsGpuModified() && !image->info.IsTiled() && SafeToDownload(*image) &&
+		    !DownloadImageMemory(id)) {
+			continue;
+		}
+		if (image->IsGpuModified()) {
+			image->ClearGpuModified();
+		}
+		DeleteImage(id, false);
+		erased.push_back(id);
+		m_gc_emergency_freed++;
+	}
+	// Destroying the images returns their memory; the GPU must be done with them first. No other
+	// deferred operation refers to an image slot, so they can be erased now rather than at the
+	// next draw.
+	if (m_scheduler.Active()) {
+		m_scheduler.Wait(m_scheduler.CurrentTick());
+	}
+	for (const auto id: erased) {
+		m_slot_images.erase(id);
+	}
+	if (m_graphics.CanReportMemoryUsage()) {
+		m_total_used_memory = m_graphics.GetDeviceMemoryUsage();
+	}
+	return freed;
+}
+
+void TextureCache::DeleteImage(ImageId id, bool defer_erase) {
 	KYTY_PROFILER_FUNCTION();
 	auto* image = m_slot_images.try_get(id);
 	if (image == nullptr || !image->registered) {
@@ -329,6 +406,9 @@ void TextureCache::DeleteImage(ImageId id) {
 		}
 	}
 	UnregisterImage(id);
+	if (!defer_erase) {
+		return;
+	}
 	if (m_scheduler.Active()) {
 		m_scheduler.DeferOperation([this, id] { m_slot_images.erase(id); });
 	} else {
@@ -770,7 +850,7 @@ ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested, BindingTyp
 		info.resources = std::max(requested.resources, cached.info.resources);
 	}
 	info.htile_clear_mask     = 0;
-	const auto replacement_id = InsertImage(info);
+	const auto replacement_id = InsertImage(info, cached_id);
 	auto&      replacement    = m_slot_images[replacement_id];
 	replacement.usage         = cached.usage;
 	if (cached.binding.is_bound || cached.binding.is_target) {
@@ -912,7 +992,7 @@ TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& reques
 ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId source_id) {
 	KYTY_PROFILER_FUNCTION();
 	RefreshCopySource(source_id);
-	const auto expanded_id = InsertImage(info);
+	const auto expanded_id = InsertImage(info, source_id);
 	auto&      expanded    = m_slot_images[expanded_id];
 	auto&      source      = m_slot_images[source_id];
 	expanded.usage         = source.usage;
@@ -949,7 +1029,7 @@ ImageId TextureCache::RecreateWithUnrestrictedViews(ImageId source_id) {
 	RefreshCopySource(source_id);
 	auto info                      = m_slot_images[source_id].info;
 	info.unrestricted_view_formats = true;
-	const auto id                  = InsertImage(info);
+	const auto id                  = InsertImage(info, source_id);
 	auto&      image               = m_slot_images[id];
 	auto&      source              = m_slot_images[source_id];
 	image.usage                    = source.usage;
@@ -1482,7 +1562,7 @@ ImageId TextureCache::AssociateStencil(ImageId depth_id, GuestRange stencil) {
 		ImageInfo info {};
 		info.data   = stencil;
 		info.extent = depth.info.extent;
-		association = InsertImage(info);
+		association = InsertImage(info, depth_id);
 	}
 	auto& record = m_slot_images[association];
 	TouchImage(record);
@@ -2239,7 +2319,7 @@ void TextureCache::EmergencyCollect(uint64_t tick) {
 	// Free well below the budget: a level load allocates gigabytes within seconds, and with
 	// video memory full the driver refuses allocations even in system memory.
 	const auto budget = m_graphics.GetTotalMemoryBudget();
-	const auto target = budget - std::min<uint64_t>(budget / 4, 1024ull * 1024 * 1024);
+	const auto target = budget - std::min<uint64_t>(budget / 4, 1536ull * 1024 * 1024);
 	std::vector<ImageId> candidates;
 	std::vector<size_t>  kept;
 	size_t               scanned = 0;
@@ -2355,8 +2435,10 @@ void TextureCache::RunGarbageCollector() {
 	if (m_total_used_memory >= m_critical_gc_memory) {
 		collect(true);
 	}
+	// Start before the budget is reached: a level load allocates gigabytes within seconds (8 GB
+	// cards ran out loading ASTRO BOT's Sky Garden while this waited for the budget itself).
 	if (m_graphics.CanReportMemoryUsage() &&
-	    m_total_used_memory >= m_graphics.GetTotalMemoryBudget()) {
+	    m_total_used_memory + 768ull * 1024 * 1024 >= m_graphics.GetTotalMemoryBudget()) {
 		EmergencyCollect(tick);
 	}
 	static const bool print_stats = std::getenv("KYTY_MEMORY_STATS") != nullptr;

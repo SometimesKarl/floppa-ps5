@@ -116,11 +116,16 @@ private:
 		}
 	}
 
-	[[nodiscard]] ImageId     InsertImage(const ImageInfo& info);
+	// `protect` is an image the caller keeps using after the insertion; it is never reclaimed.
+	[[nodiscard]] ImageId     InsertImage(const ImageInfo& info, ImageId protect = {});
+	// Frees idle images, oldest first, and waits for the GPU so their memory is returned: used
+	// when video and system memory both refuse a new image. Returns the bytes freed.
+	uint64_t                  ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive);
 	[[nodiscard]] ImageId     GetNullImage(const ImageDesc& desc);
 	void                      RegisterImage(ImageId id);
 	void                      UnregisterImage(ImageId id);
-	void                      DeleteImage(ImageId id);
+	// defer_erase=false leaves the slot for the caller to erase once the GPU is idle.
+	void                      DeleteImage(ImageId id, bool defer_erase = true);
 	void                      FreeImage(ImageId id);
 	void                      TouchImage(Image& image);
 	void                      TrackImage(ImageId id);

@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/colorRenderTarget.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -354,6 +355,10 @@ void RenderExecutor::ResolveRenderColorTarget(CommandBuffer& buffer, RenderColor
 	{
 		KYTY_PROFILER_BLOCK("ResolveRenderColorTarget: FindImage");
 		r.image_id = texture_cache.FindImage(r.desc, exact_format);
+	}
+	if (RenderStats::Enabled()) {
+		RenderStats::CountTarget(std::max(r.desc.info.extent.width >> r.guest_mip_level, 1u),
+		                         std::max(r.desc.info.extent.height >> r.guest_mip_level, 1u));
 	}
 	r.export_mapping = target_format.export_mapping;
 	KYTY_PROFILER_BLOCK("ResolveRenderColorTarget: BindRenderTarget");

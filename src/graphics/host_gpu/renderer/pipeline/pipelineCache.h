@@ -150,7 +150,7 @@ public:
 	                              std::span<const ShaderVertexInputInfo> vertex_info,
 	                              CommandBuffer& command, const ShaderPixelInputInfo* ps_input_info,
 	                              vk::PrimitiveTopology topology, bool primitive_restart_enable,
-	                              const GraphicsPrograms& programs);
+	                              const GraphicsPrograms& programs, bool may_defer = false);
 	Pipeline& GetComputePipeline(const ShaderComputeInputInfo& input_info,
 	                             const ShaderProgram&          compute_program);
 

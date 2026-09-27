@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/pipeline/descriptors.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -830,6 +831,34 @@ void RenderExecutor::BindRenderTarget(ImageId id) {
 	auto& image             = m_context.GetTextureCache().GetImage(id);
 	image.binding.is_target = true;
 	m_bound_images.push_back(id);
+	const auto frame = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
+	if (image.target_frame != frame) {
+		image.prev_target_frame = image.target_frame;
+		image.target_frame      = frame;
+	}
+}
+
+bool RenderExecutor::TargetsDrawnEveryFrame(const RenderColorInfo* colors, uint32_t color_count,
+                                            const RenderDepthInfo& depth) {
+	const auto frame = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
+	auto&      cache = m_context.GetTextureCache();
+	uint32_t   count = 0;
+	const auto recent = [&](ImageId id) {
+		if (!id) {
+			return true;
+		}
+		const auto* image = cache.m_slot_images.try_get(id);
+		count++;
+		// Drawn into in one of the last two frames as well as this one.
+		return image != nullptr && image->prev_target_frame != UINT64_MAX &&
+		       frame - image->prev_target_frame <= 2;
+	};
+	for (uint32_t i = 0; i < color_count; i++) {
+		if (!recent(colors[i].image_id)) {
+			return false;
+		}
+	}
+	return recent(depth.image_id) && count != 0;
 }
 
 void RenderExecutor::ResetBindings() {
