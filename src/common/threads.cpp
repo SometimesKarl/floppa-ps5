@@ -273,6 +273,12 @@ void Thread::SleepNano(uint64_t nanos) {
 #endif
 }
 
+void Thread::RaiseCurrentPriority() {
+#ifdef KYTY_WIN_CS
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+#endif
+}
+
 bool Thread::IsMainThread() {
 	return g_main_thread == std::this_thread::get_id();
 }

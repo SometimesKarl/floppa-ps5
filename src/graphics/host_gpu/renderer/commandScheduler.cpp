@@ -357,6 +357,7 @@ void CommandScheduler::WaitForMarker(uint32_t marker, uint64_t tick) {
 
 void CommandScheduler::PriorityOperationsThread(std::stop_token stop) {
 	KYTY_PROFILER_THREAD("Thread_GpuPriority");
+	Common::Thread::RaiseCurrentPriority();
 	while (!stop.stop_requested()) {
 		PendingOperation operation;
 		{

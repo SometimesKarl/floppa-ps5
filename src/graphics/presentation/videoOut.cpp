@@ -877,6 +877,7 @@ void PresentLogged(Graphics::Presenter& presenter, Graphics::Presenter::Frame& f
 } // namespace
 
 void VideoOutDriver::Impl::PresentThread(std::stop_token token) {
+	Common::Thread::RaiseCurrentPriority();
 	const auto frequency = Common::Timer::QueryPerformanceFrequency();
 	EXIT_IF(frequency == 0);
 

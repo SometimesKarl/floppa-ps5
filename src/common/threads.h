@@ -34,6 +34,10 @@ public:
 	static void SleepMicro(uint32_t micros);
 	static void SleepNano(uint64_t nanos);
 	static bool IsMainThread();
+	// Raises the calling emulator thread above normal priority. For threads on the frame's
+	// critical path that block rather than spin (GPU command processing, interrupt delivery,
+	// presentation), so busy-waiting guest threads at normal priority cannot starve them.
+	static void RaiseCurrentPriority();
 
 	// Get current thread id
 	// Once a thread has finished, the id may be reused by another thread.
