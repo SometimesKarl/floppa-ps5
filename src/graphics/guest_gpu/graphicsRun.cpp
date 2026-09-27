@@ -1,5 +1,6 @@
 #include "graphics/guest_gpu/graphicsRun.h"
 
+#include "common/allocSampler.h"
 #include "common/assert.h"
 #include "common/emulatorConfig.h"
 #include "common/logging/log.h"
@@ -499,6 +500,7 @@ void GuestGpu::ThreadRun(void* data) {
 	auto* gpu = static_cast<GuestGpu*>(data);
 	EXIT_IF(gpu == nullptr);
 	KYTY_PROFILER_THREAD("Thread_Gpu");
+	Common::AllocSamplerEnableThread();
 	Common::Thread::RaiseCurrentPriority();
 	GpuProfiler::EnableZonesOnThisThread();
 	g_gpu_thread = true;
