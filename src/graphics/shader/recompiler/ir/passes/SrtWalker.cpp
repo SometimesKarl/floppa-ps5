@@ -15,17 +15,20 @@ namespace Libs::Graphics::ShaderRecompiler::IR {
 
 namespace {
 std::atomic<SrtDirectReader> g_direct_reader {nullptr};
-thread_local SrtReadObserver t_read_observer = nullptr;
-thread_local void*           t_read_context  = nullptr;
+thread_local SrtReadObserver     t_read_observer      = nullptr;
+thread_local SrtUserDataObserver t_user_data_observer = nullptr;
+thread_local void*               t_read_context       = nullptr;
 } // namespace
 
 void SetSrtDirectReader(SrtDirectReader reader) {
 	g_direct_reader.store(reader, std::memory_order_release);
 }
 
-void SetSrtReadObserver(SrtReadObserver observer, void* context) {
-	t_read_observer = observer;
-	t_read_context  = context;
+void SetSrtReadObserver(SrtReadObserver observer, SrtUserDataObserver user_data_observer,
+                        void* context) {
+	t_read_observer      = observer;
+	t_user_data_observer = user_data_observer;
+	t_read_context       = context;
 }
 
 SrtRuntime CleanRuntime(SrtRuntime runtime) {
@@ -685,6 +688,10 @@ bool SrtWalker::EvaluateInst(const Inst& inst, uint64_t& result) {
 				return false;
 			}
 			result = m_runtime.user_data[reg - m_program.user_data_base];
+			if (t_user_data_observer != nullptr) {
+				t_user_data_observer(t_read_context, reg - m_program.user_data_base,
+				                     static_cast<uint32_t>(result));
+			}
 			return true;
 		}
 		case ValueOpcode::GetShaderBase: result = m_runtime.shader_base; return true;

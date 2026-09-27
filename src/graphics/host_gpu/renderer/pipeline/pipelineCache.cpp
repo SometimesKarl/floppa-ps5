@@ -201,18 +201,21 @@ struct PipelineCache::ProgramCache {
 		ShaderProgram                                handle;
 	};
 
-	// One materialization and every guest word it read. The walk is a function of the user
-	// data, the shader base and those reads (addresses follow from earlier values), so equal
-	// user data and equal re-read words reproduce the same resources without the walk.
+	// One materialization and every input it read: user-data registers, guest words (ordinary)
+	// and strict reads with their outcome. The walk is a function of those, the shader base and
+	// the user-data count (later addresses follow from earlier values), so when all of them
+	// still hold the stored resources are what the walk would produce. Per-draw user data the
+	// walk never reads (constants) does not prevent reuse.
+	enum class ReadKind : uint8_t { Word, Strict, UserData };
 	struct MaterializeRead {
-		uint64_t address     = 0;
+		uint64_t address     = 0; // guest address, or user-data index for ReadKind::UserData
 		uint32_t count       = 0;
 		uint32_t first_value = 0;
-		bool     strict      = false;
+		ReadKind kind        = ReadKind::Word;
 		bool     ok          = false;
 	};
 	struct MaterializeMemo {
-		std::vector<uint32_t>                        user_data;
+		size_t                                       user_data_count = 0;
 		uint64_t                                     shader_base = 0;
 		std::vector<MaterializeRead>                 reads;
 		std::vector<uint32_t>                        values;
@@ -247,7 +250,8 @@ struct PipelineCache::ProgramCache {
 		auto&      capture = *static_cast<MemoCapture*>(userdata);
 		const bool ok      = ReadShaderGuestMemory(nullptr, address, values);
 		capture.reads->push_back({address, static_cast<uint32_t>(values.size()),
-		                          static_cast<uint32_t>(capture.values->size()), true, ok});
+		                          static_cast<uint32_t>(capture.values->size()), ReadKind::Strict,
+		                          ok});
 		if (ok) {
 			capture.values->insert(capture.values->end(), values.begin(), values.end());
 		}
@@ -257,14 +261,26 @@ struct PipelineCache::ProgramCache {
 	static void ObserveDirectRead(void* context, uint64_t address, uint32_t value) {
 		auto& capture = *static_cast<MemoCapture*>(context);
 		capture.reads->push_back(
-		    {address, 1, static_cast<uint32_t>(capture.values->size()), false, true});
+		    {address, 1, static_cast<uint32_t>(capture.values->size()), ReadKind::Word, true});
 		capture.values->push_back(value);
 	}
 
-	static bool MemoStillValid(const MaterializeMemo& memo) {
+	static void ObserveUserData(void* context, uint32_t index, uint32_t value) {
+		auto& capture = *static_cast<MemoCapture*>(context);
+		capture.reads->push_back(
+		    {index, 1, static_cast<uint32_t>(capture.values->size()), ReadKind::UserData, true});
+		capture.values->push_back(value);
+	}
+
+	static bool MemoStillValid(const MaterializeMemo& memo, std::span<const uint32_t> user_data) {
 		thread_local std::vector<uint32_t> scratch;
 		for (const auto& read: memo.reads) {
-			if (read.strict) {
+			if (read.kind == ReadKind::UserData) {
+				if (read.address >= user_data.size() ||
+				    user_data[read.address] != memo.values[read.first_value]) {
+					return false;
+				}
+			} else if (read.kind == ReadKind::Strict) {
 				scratch.resize(read.count);
 				const bool ok = ReadShaderGuestMemory(nullptr, read.address, scratch);
 				if (ok != read.ok || (ok && !std::equal(scratch.begin(), scratch.end(),
@@ -296,7 +312,7 @@ struct PipelineCache::ProgramCache {
 		for (size_t i = 0; i < entry.memo.size(); i++) {
 			auto& memo = entry.memo[i];
 			if (!memo.valid || memo.shader_base != shader_base ||
-			    !std::ranges::equal(memo.user_data, user_data) || !MemoStillValid(memo)) {
+			    memo.user_data_count != user_data.size() || !MemoStillValid(memo, user_data)) {
 				continue;
 			}
 			if (entry.current_memo != static_cast<int>(i)) {
@@ -304,6 +320,8 @@ struct PipelineCache::ProgramCache {
 				entry.specialization = memo.specialization;
 				entry.current_memo   = static_cast<int>(i);
 			}
+			// Bindings read the draw's own user data (shader constants) from the snapshot.
+			entry.resources.user_data.assign(user_data.begin(), user_data.end());
 			memo.last_use = memo_clock;
 			++hits;
 			return;
@@ -322,12 +340,12 @@ struct PipelineCache::ProgramCache {
 		    .userdata                   = &capture,
 		    .read_specialization_memory = CapturingStrictRead,
 		};
-		ShaderRecompiler::IR::SetSrtReadObserver(ObserveDirectRead, &capture);
+		ShaderRecompiler::IR::SetSrtReadObserver(ObserveDirectRead, ObserveUserData, &capture);
 		const bool materialized = ShaderRecompiler::IR::MaterializeResources(
 		    entry.resource_plan, runtime, entry.resources, entry.specialization);
-		ShaderRecompiler::IR::SetSrtReadObserver(nullptr, nullptr);
+		ShaderRecompiler::IR::SetSrtReadObserver(nullptr, nullptr, nullptr);
 		EXIT_IF(!materialized);
-		slot.user_data.assign(user_data.begin(), user_data.end());
+		slot.user_data_count = user_data.size();
 		slot.shader_base    = shader_base;
 		slot.resources      = entry.resources;
 		slot.specialization = entry.specialization;
