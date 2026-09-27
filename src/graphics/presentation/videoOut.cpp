@@ -10,6 +10,7 @@
 #include "common/threads.h"
 #include "common/timer.h"
 #include "graphics/guest_gpu/gpu_defs.h"
+#include "common/avSync.h"
 #include "graphics/guest_gpu/graphicsRun.h"
 #include "graphics/guest_gpu/tile.h"
 #include "graphics/host_gpu/renderer/image/imageInfo.h"
@@ -1255,6 +1256,18 @@ bool FlipQueue::Flip(uint32_t micros) {
 
 	const auto present_begin = Common::Timer::QueryPerformanceCounter();
 	m_presenter.Present(*r.frame);
+	if (r.source == FlipRequestSource::GpuEop && r.guest_qpc != 0) {
+		static uint64_t last_present_end = 0;
+		const auto      present_end      = Common::Timer::QueryPerformanceCounter();
+		const auto      us_per_tick = 1e6 / static_cast<double>(Common::Timer::QueryPerformanceFrequency());
+		const auto latency_us = static_cast<uint64_t>(static_cast<double>(present_end - r.guest_qpc) * us_per_tick);
+		const auto interval_us =
+		    last_present_end == 0
+		        ? uint64_t {0}
+		        : static_cast<uint64_t>(static_cast<double>(present_end - last_present_end) * us_per_tick);
+		last_present_end = present_end;
+		Common::AvSync::ReportPresentedFrame(latency_us, interval_us);
+	}
 	if (auto& log = FrameLog::Instance(); log.Enabled()) {
 		log.Write(r.source == FlipRequestSource::GpuEop ? 0 : 1, r.id, r.flip_arg, r.index,
 		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter(),

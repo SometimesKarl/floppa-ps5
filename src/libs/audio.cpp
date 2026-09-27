@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include "common/assert.h"
+#include "common/avSync.h"
 #include "common/emulatorConfig.h"
 #include "common/logging/log.h"
 #include "common/threads.h"
@@ -353,14 +354,32 @@ const void* Audio::PrepareOutputBuffer(const PortOut& port, const void* data,
 
 namespace {
 
-// Target depth of each blocking port's host queue. KYTY_AUDIO_LATENCY_MS overrides it (20-250).
+// Target depth of each blocking port's host queue. On the console the picture reaches the
+// screen about a frame or two after the game submits it; here the GPU command thread and the
+// present add more (55 ms at 30 FPS in ASTRO BOT's desert), so sound queued for only 40 ms was
+// heard ~50 ms before the matching picture. The queue now follows the measured presentation
+// latency plus one frame (the game simulates a frame before it renders it), minus the ~15 ms
+// the host device buffer adds, within 40-150 ms. KYTY_AUDIO_LATENCY_MS fixes it (20-250).
 uint64_t AudioTargetLatencyUs() {
-	static const uint64_t latency = [] {
+	static const int64_t fixed_us = [] {
 		const char* value = std::getenv("KYTY_AUDIO_LATENCY_MS");
-		const auto  ms    = value != nullptr ? std::strtoul(value, nullptr, 10) : 40ul;
-		return static_cast<uint64_t>(std::clamp<unsigned long>(ms, 20ul, 250ul)) * 1000;
+		if (value == nullptr) {
+			return int64_t {-1};
+		}
+		const auto ms = std::clamp<unsigned long>(std::strtoul(value, nullptr, 10), 20ul, 250ul);
+		return static_cast<int64_t>(ms) * 1000;
 	}();
-	return latency;
+	if (fixed_us >= 0) {
+		return static_cast<uint64_t>(fixed_us);
+	}
+	constexpr int64_t MinUs = 40000;
+	constexpr int64_t MaxUs = 150000;
+	const auto video_us    = static_cast<int64_t>(Common::AvSync::VideoLatencyUs());
+	if (video_us == 0) {
+		return MinUs;
+	}
+	const auto frame_us = static_cast<int64_t>(Common::AvSync::FrameIntervalUs());
+	return static_cast<uint64_t>(std::clamp<int64_t>(video_us + frame_us - 15000, MinUs, MaxUs));
 }
 
 // KYTY_AV_LOG=1 prints each port's queued audio every 5 s (the host-side audio latency).
@@ -409,7 +428,10 @@ bool Audio::QueueSdlAudio(PortOut* port, const void* data, bool blocking) {
 			Common::Thread::SleepMicro(1000);
 			queued = SDL_GetAudioStreamQueued(port->stream);
 		}
-		if (port->queue_primed) {
+		// Well below the target (it just rose with the video latency): skip the cadence sleep
+		// so the queue can grow to it; at the target, writes keep the even cadence of #822.
+		if (port->queue_primed &&
+		    queued + 2 * static_cast<int>(prepared_size) >= static_cast<int>(min_queued_size)) {
 			const auto next_time = port->last_output_time + buffer_us;
 			const auto now       = LibKernel::KernelGetProcessTime();
 			if (next_time > now) {
@@ -433,9 +455,12 @@ bool Audio::QueueSdlAudio(PortOut* port, const void* data, bool blocking) {
 			last_log               = now;
 			const auto bytes_per_s = static_cast<double>(prepared_size) * port->freq /
 			                         std::max<uint32_t>(port->samples_num, 1);
-			std::printf("audio port=%p freq=%u grain=%u blocking=%d queued_ms=%.1f\n",
+			std::printf("audio port=%p freq=%u grain=%u blocking=%d queued_ms=%.1f target_ms=%.1f "
+			            "video_ms=%.1f frame_ms=%.1f\n",
 			            static_cast<void*>(port), port->freq, port->samples_num, blocking ? 1 : 0,
-			            1000.0 * SDL_GetAudioStreamQueued(port->stream) / bytes_per_s);
+			            1000.0 * SDL_GetAudioStreamQueued(port->stream) / bytes_per_s,
+			            AudioTargetLatencyUs() / 1000.0, Common::AvSync::VideoLatencyUs() / 1000.0,
+			            Common::AvSync::FrameIntervalUs() / 1000.0);
 		}
 	}
 
