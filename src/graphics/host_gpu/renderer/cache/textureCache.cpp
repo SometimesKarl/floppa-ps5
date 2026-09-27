@@ -1500,9 +1500,14 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 			// until the collector reaches them (ASTRO BOT ran out of VRAM loading Sky Garden).
 			for (const auto id: candidates) {
 				const auto* stale = m_slot_images.try_get(id);
+				// As in ResolveOverlap, only images unused for NumFramesBeforeRemoval ticks: ones
+				// looked up for the command buffer being recorded (this draw's other textures)
+				// are acquired after this lookup and must stay registered.
+				const auto tick = m_scheduler.CurrentTick();
 				if (stale != nullptr && stale->registered && stale->IsDefinitelyCpuDirty() &&
 				    !stale->IsGpuModified() && !stale->IsBufferModified() && !stale->depth_id &&
-				    !stale->usage.render_target && !stale->usage.depth_target) {
+				    !stale->usage.render_target && !stale->usage.depth_target &&
+				    tick - std::min(tick, stale->tick_accessed_last) > NumFramesBeforeRemoval) {
 					FreeImage(id);
 					m_overlap_freed++;
 				}
