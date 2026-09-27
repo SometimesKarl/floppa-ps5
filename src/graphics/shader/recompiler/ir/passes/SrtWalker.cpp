@@ -1639,24 +1639,9 @@ std::span<const uint8_t> SrtWalker::FindActiveSources() {
 		for (const auto source: block.sources) {
 			active[source] = 1u;
 		}
-		uint32_t   condition = 0;
-		const bool has_condition =
-		    !block.condition.IsEmpty() && m_runtime.read_specialization_memory != nullptr;
-		bool evaluated = false;
-		if (has_condition && m_fast) {
-			// Conditions are decoded once per plan, like descriptor roots.
-			auto& roots = m_program.condition_roots;
-			if (roots.size() < m_program.control_flow.size()) {
-				roots.resize(m_program.control_flow.size(), 0);
-			}
-			if (roots[index] == 0) {
-				roots[index] = DecodeRoot(block.condition);
-			}
-			evaluated = EvaluateRoot(roots[index], condition);
-		} else if (has_condition) {
-			evaluated = Evaluate(block.condition, condition);
-		}
-		if (evaluated) {
+		uint32_t condition = 0;
+		if (!block.condition.IsEmpty() && m_runtime.read_specialization_memory != nullptr &&
+		    Evaluate(block.condition, condition)) {
 			pending.push_back(block.successors[condition != 0u ? 0u : 1u]);
 		} else {
 			pending.insert(pending.end(), block.successors.begin(), block.successors.end());
