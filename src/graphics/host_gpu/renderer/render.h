@@ -121,6 +121,12 @@ public:
 	void EndRendering() const;
 
 	[[nodiscard]] vk::CommandBuffer Handle() const;
+	// Whether anything may have been recorded since the last global barrier: every recording
+	// goes through Handle(), so its use count is a conservative witness.
+	[[nodiscard]] bool RecordedSinceGlobalBarrier() const noexcept {
+		return m_handle_uses != m_global_barrier_uses;
+	}
+	void MarkGlobalBarrier() const noexcept { m_global_barrier_uses = m_handle_uses; }
 	[[nodiscard]] GraphicContext&   GetGraphics() const noexcept { return m_graphics; }
 	[[nodiscard]] RenderContext&    GetContext() const noexcept { return m_context; }
 	[[nodiscard]] HW::Context&      GetRegisters() const noexcept { return *m_registers; }
@@ -150,6 +156,8 @@ private:
 	uint64_t            m_debug_arg4      = 0;
 	mutable RenderState m_render_state;
 	mutable bool        m_rendering   = false;
+	mutable uint64_t    m_handle_uses         = 0;
+	mutable uint64_t    m_global_barrier_uses = UINT64_MAX;
 	HW::Context*        m_registers   = nullptr;
 	HW::UserConfig*     m_user_config = nullptr;
 	HW::Shader*         m_shaders     = nullptr;

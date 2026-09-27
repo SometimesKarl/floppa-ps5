@@ -29,6 +29,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -1431,14 +1432,14 @@ void CommandProcessor::WriteAtEndOfPipe64(uint32_t cache_policy, uint32_t event_
 void CommandProcessor::EmitGlobalBarrier() {
 	Common::LockGuard lock(m_renderer.GetMutex());
 	RenderStats::Count(RenderStats::g_global_barriers);
-	{
-		static thread_local uint64_t last_work = UINT64_MAX;
-		const auto work = RenderStats::g_draws.load(std::memory_order_relaxed) +
-		                  RenderStats::g_dispatches.load(std::memory_order_relaxed);
-		if (work == last_work) {
-			RenderStats::Count(RenderStats::g_redundant_global);
-		}
-		last_work = work;
+	// A guest release or flush right after another (RELEASE_MEM, EVENT_WRITE partial flushes)
+	// with nothing recorded in between adds no ordering: the previous ALL_COMMANDS barrier
+	// already covers everything before it. ~87% of the barriers in ASTRO BOT's desert were such
+	// repeats (~20k a second), each a driver call on the GPU command thread.
+	static const bool keep_redundant = std::getenv("KYTY_KEEP_REDUNDANT_BARRIERS") != nullptr;
+	if (!keep_redundant && !CurrentBuffer().RecordedSinceGlobalBarrier()) {
+		RenderStats::Count(RenderStats::g_redundant_global);
+		return;
 	}
 
 	vk::MemoryBarrier2 barrier {};
@@ -1452,6 +1453,7 @@ void CommandProcessor::EmitGlobalBarrier() {
 	dependency.pMemoryBarriers    = &barrier;
 	GetScheduler().EndRendering();
 	CurrentBuffer().Handle().pipelineBarrier2(dependency);
+	CurrentBuffer().MarkGlobalBarrier();
 }
 
 void CommandProcessor::TriggerEopEventAtEndOfPipe(uint32_t interrupt_context_id) {

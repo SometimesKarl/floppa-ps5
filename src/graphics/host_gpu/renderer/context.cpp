@@ -26,11 +26,13 @@ bool CommandBuffer::IsInvalid() const {
 
 vk::CommandBuffer CommandBuffer::Handle() const {
 	EXIT_IF(IsInvalid());
+	m_handle_uses++;
 	return m_buffer;
 }
 
 void CommandBuffer::Begin() {
 	EXIT_IF(m_rendering || IsInvalid());
+	m_global_barrier_uses = UINT64_MAX;
 	auto buffer = Handle();
 
 	vk::CommandBufferBeginInfo begin_info {};

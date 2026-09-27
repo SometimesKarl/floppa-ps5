@@ -163,7 +163,7 @@ void RenderContext::RunGarbageCollector() {
 			const auto redundant  = take(RenderStats::g_redundant_global);
 			const auto images     = take(RenderStats::g_image_barriers);
 			std::printf("GPU stats per second: draws %.0f dispatches %.0f | begin rendering %.0f end "
-			            "%.0f | global barriers %.0f (%.0f with no work since the last) | image "
+			            "%.0f | global barriers %.0f (%.0f skipped as repeats) | image "
 			            "barrier batches %.0f\n",
 			            draws / seconds, dispatches / seconds, begins / seconds, ends / seconds,
 			            global / seconds, redundant / seconds, images / seconds);
