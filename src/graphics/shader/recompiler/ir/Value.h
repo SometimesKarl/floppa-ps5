@@ -165,4 +165,52 @@ private:
 	mutable uint32_t    evaluation_index = UINT32_MAX;
 };
 
+// Defined here so the SRT walker, which evaluates resource tables for every draw, inlines them.
+inline ValueOpcode Inst::GetOpcode() const {
+	return opcode;
+}
+
+inline Value Inst::Arg(size_t index) const {
+	EXIT_IF(index >= args.size());
+	return args[index];
+}
+
+inline bool Value::IsEmpty() const {
+	return type == Type::Void;
+}
+
+inline bool Value::IsImmediate() const {
+	return type != Type::Opaque;
+}
+
+inline bool Value::IsIdentity() const {
+	return type == Type::Opaque && inst->GetOpcode() == ValueOpcode::Identity;
+}
+
+inline bool Value::IsPhi() const {
+	return type == Type::Opaque && inst->GetOpcode() == ValueOpcode::Phi;
+}
+
+inline Inst* Value::TryInstruction() const {
+	return type == Type::Opaque ? inst : nullptr;
+}
+
+inline Inst* Value::ResolveInstruction() const {
+	Value value = *this;
+	EXIT_IF(value.type != Type::Opaque);
+	while (value.IsIdentity()) {
+		value = value.inst->Arg(0);
+		EXIT_IF(value.type != Type::Opaque);
+	}
+	return value.inst;
+}
+
+inline Value Value::Resolve() const {
+	Value value = *this;
+	while (value.IsIdentity()) {
+		value = value.inst->Arg(0);
+	}
+	return value;
+}
+
 } // namespace Libs::Graphics::ShaderRecompiler::IR
