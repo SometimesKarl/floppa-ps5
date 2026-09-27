@@ -744,7 +744,12 @@ void BufferCache::RunGarbageCollector() {
 			return false;
 		}
 		if (dirty) {
-			EXIT_IF(!DownloadBufferMemory(buffer, buffer.CpuAddress(), buffer.Size()));
+			// A guest thread's read-back can own these bytes already: it takes them out of the
+			// GPU-modified ranges when it records the download, while the pages stay GPU-modified
+			// until it publishes them. Nothing is left to copy then; retire the buffer later.
+			if (!DownloadBufferMemory(buffer, buffer.CpuAddress(), buffer.Size())) {
+				return false;
+			}
 			dirty_buffers.push_back(id);
 		} else {
 			m_memory_tracker.UntrackMemory(buffer.CpuAddress(), buffer.Size());
