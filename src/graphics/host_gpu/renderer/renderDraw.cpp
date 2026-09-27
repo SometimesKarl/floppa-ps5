@@ -1164,6 +1164,13 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	const auto rendering =
 	    AcquireRenderTargets(buffer, state.color_info, state.color_count, state.depth_info,
 	                         feedback_aspects, stages);
+	if (!pipeline.ready.load(std::memory_order_acquire)) {
+		// A compile worker is still building this pipeline (a first compile takes 0.1-4 s with
+		// this title's shaders). Skip the draw rather than stall the frame; it reappears as soon
+		// as the pipeline is ready, and the driver cache makes it instant in later sessions.
+		LogDrawPhase(draw.Name(), "SkippedPipelineCompiling");
+		return;
+	}
 
 	// Resource preparation above may synchronously finish and restart the scheduler. From this
 	// point onward, every operation targets the current command buffer and cannot touch guest

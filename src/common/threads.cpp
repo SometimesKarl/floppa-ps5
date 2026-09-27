@@ -279,6 +279,12 @@ void Thread::RaiseCurrentPriority() {
 #endif
 }
 
+void Thread::LowerCurrentPriority() {
+#ifdef KYTY_WIN_CS
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+}
+
 bool Thread::IsMainThread() {
 	return g_main_thread == std::this_thread::get_id();
 }

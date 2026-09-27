@@ -205,15 +205,54 @@ static void CreateDescriptorLayout(GraphicContext& graphics, PipelineCache::Pipe
 	            &create, nullptr, &pipeline.descriptor_set_layout) != vk::Result::eSuccess);
 }
 
+// Everything vkCreateGraphicsPipelines reads, owned in one place so the driver compile can run
+// on a worker thread after the draw that asked for it has moved on.
+struct GraphicsPipelineBuild {
+	PipelineCache::Pipeline*                     pipeline = nullptr;
+	uint64_t                                     vs_id    = 0;
+	uint64_t                                     ps_id    = 0;
+	vk::ShaderModule                             tess_control_shader_module = nullptr;
+	vk::ShaderModule                             tess_eval_shader_module    = nullptr;
+	vk::PipelineShaderStageCreateInfo            shader_stages[4] {};
+	vk::VertexInputAttributeDescription          input_attr[ShaderVertexInputInfo::RES_MAX] {};
+	vk::VertexInputBindingDescription            input_desc[ShaderVertexInputInfo::RES_MAX] {};
+	vk::PipelineVertexInputStateCreateInfo       vertex_input_info {};
+	vk::PipelineInputAssemblyStateCreateInfo     input_assembly {};
+	vk::PipelineViewportDepthClipControlCreateInfoEXT  depth_clip_control {};
+	vk::PipelineViewportStateCreateInfo          viewport_state {};
+	vk::PipelineRasterizationDepthClipStateCreateInfoEXT  clip_ext {};
+	vk::PipelineRasterizationStateCreateInfo     rasterizer {};
+	vk::PipelineRasterizationProvokingVertexStateCreateInfoEXT  provoking_vertex {};
+	vk::PipelineMultisampleStateCreateInfo       multisampling {};
+	vk::PipelineColorBlendAttachmentState        color_blend_attachment[RENDER_COLOR_ATTACHMENTS_MAX] {};
+	vk::Bool32                                   color_write_enable[RENDER_COLOR_ATTACHMENTS_MAX] {};
+	vk::PipelineColorWriteCreateInfoEXT          color_write {};
+	vk::PipelineColorBlendStateCreateInfo        color_blending {};
+	vk::PipelineDepthStencilStateCreateInfo      depth_stencil_info {};
+	std::vector<vk::DynamicState>                dynamic_states;
+	vk::PipelineDynamicStateCreateInfo           dynamic_state {};
+	std::array<vk::Format, RENDER_COLOR_ATTACHMENTS_MAX> color_formats {};
+	vk::PipelineRenderingCreateInfo              rendering_info {};
+	vk::PipelineTessellationStateCreateInfo      tessellation_state {};
+	vk::GraphicsPipelineCreateInfo               pipeline_info {};
+};
+
+void GraphicsPipelineBuildDeleter::operator()(GraphicsPipelineBuild* build) const {
+	delete build;
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& pipeline,
-                            const PipelineRenderingState&          rendering,
-                            const PipelineVertexInputState&        vertex_input,
-                            std::span<const ShaderVertexInputInfo> vertex_info,
-                            const ShaderPixelInputInfo*            ps_input_info,
-                            const PipelineCache::GraphicsPrograms& programs,
-                            const PipelineStaticParameters&        static_params,
-                            vk::PipelineCache                      driver_cache) {
+GraphicsPipelineBuildPtr PrepareGraphicsPipeline(GraphicContext& graphics,
+                                                 PipelineCache::Pipeline& pipeline,
+                                                 const PipelineRenderingState&          rendering,
+                                                 const PipelineVertexInputState&        vertex_input,
+                                                 std::span<const ShaderVertexInputInfo> vertex_info,
+                                                 const ShaderPixelInputInfo*            ps_input_info,
+                                                 const PipelineCache::GraphicsPrograms& programs,
+                                                 const PipelineStaticParameters& static_params) {
+	GraphicsPipelineBuildPtr build_ptr(new GraphicsPipelineBuild);
+	auto&                    b = *build_ptr;
+	b.pipeline                 = &pipeline;
 	const auto& vs_input_info  = vertex_info.front();
 	const auto& vertex_program = programs.vertex[0];
 	const auto& pixel_program  = programs.pixel;
@@ -228,8 +267,10 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	const bool rect_list =
 	    !mesh && !tessellation && static_params.topology == vk::PrimitiveTopology::ePatchList;
 
-	vk::ShaderModule tess_control_shader_module = nullptr;
-	vk::ShaderModule tess_eval_shader_module    = nullptr;
+	auto& tess_control_shader_module = b.tess_control_shader_module;
+	auto& tess_eval_shader_module    = b.tess_eval_shader_module;
+	b.vs_id                          = vertex_program.id;
+	b.ps_id                          = ps_active ? pixel_program.id : 0;
 
 	if (rect_list) {
 		const auto shaders =
@@ -250,8 +291,8 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	EXIT_NOT_IMPLEMENTED(
 	    rect_list && (tess_control_shader_module == nullptr || tess_eval_shader_module == nullptr));
 
-	vk::PipelineShaderStageCreateInfo shader_stages[4] {};
-	uint32_t                          shader_stage_count = 0;
+	auto&    shader_stages      = b.shader_stages;
+	uint32_t shader_stage_count = 0;
 	for (uint32_t i = 0; i < vertex_info.size(); i++) {
 		shader_stages[shader_stage_count++] = {.stage =
 		                                           NativeShaderStage(vertex_info[i].logical_stage),
@@ -274,8 +315,8 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 		                                       .pName  = "main"};
 	}
 
-	vk::VertexInputAttributeDescription input_attr[ShaderVertexInputInfo::RES_MAX] {};
-	vk::VertexInputBindingDescription   input_desc[ShaderVertexInputInfo::RES_MAX] {};
+	auto& input_attr = b.input_attr;
+	auto& input_desc = b.input_desc;
 
 	for (uint32_t binding = 0; binding < vertex_input.binding_count; binding++) {
 		input_desc[binding].binding   = binding;
@@ -333,21 +374,21 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 		EXIT_IF(registers_num < 1 || registers_num > 4);
 	}
 
-	vk::PipelineVertexInputStateCreateInfo vertex_input_info {};
+	auto& vertex_input_info = b.vertex_input_info;
 	vertex_input_info.vertexBindingDescriptionCount   = vertex_input.binding_count;
 	vertex_input_info.pVertexBindingDescriptions      = input_desc;
 	vertex_input_info.vertexAttributeDescriptionCount = vertex_input.attribute_count;
 	vertex_input_info.pVertexAttributeDescriptions    = input_attr;
 
-	vk::PipelineInputAssemblyStateCreateInfo input_assembly {};
+	auto& input_assembly = b.input_assembly;
 	input_assembly.topology = static_params.topology;
 	input_assembly.primitiveRestartEnable =
 	    static_params.primitive_restart_enable ? VK_TRUE : VK_FALSE;
 
-	vk::PipelineViewportDepthClipControlCreateInfoEXT depth_clip_control {};
+	auto& depth_clip_control = b.depth_clip_control;
 	depth_clip_control.negativeOneToOne = (static_params.negative_one_to_one ? VK_TRUE : VK_FALSE);
 
-	vk::PipelineViewportStateCreateInfo viewport_state {};
+	auto& viewport_state = b.viewport_state;
 	viewport_state.pNext = &depth_clip_control;
 
 	vk::CullModeFlags cull_mode = vk::CullModeFlagBits::eNone;
@@ -361,10 +402,10 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	vk::FrontFace front_face =
 	    (static_params.face ? vk::FrontFace::eClockwise : vk::FrontFace::eCounterClockwise);
 
-	vk::PipelineRasterizationDepthClipStateCreateInfoEXT clip_ext {};
+	auto& clip_ext = b.clip_ext;
 	clip_ext.depthClipEnable = static_params.depth_clip_enable ? VK_TRUE : VK_FALSE;
 
-	vk::PipelineRasterizationStateCreateInfo rasterizer {};
+	auto& rasterizer = b.rasterizer;
 	// MoltenVK lacks VK_EXT_depth_clip_enable; omit the depth-clip struct on macOS and accept
 	// Vulkan's default depth clipping (enabled) instead of the PS5's clamp behavior.
 #if !defined(__APPLE__)
@@ -372,7 +413,7 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	rasterizer.depthClampEnable = VK_TRUE;
 	rasterizer.pNext = &clip_ext;
 #endif
-	vk::PipelineRasterizationProvokingVertexStateCreateInfoEXT provoking_vertex {};
+	auto& provoking_vertex = b.provoking_vertex;
 	EXIT_NOT_IMPLEMENTED(static_params.provoking_vtx_last &&
 	                     !graphics.provoking_vertex_last_enabled);
 	if (graphics.provoking_vertex_last_enabled) {
@@ -386,12 +427,12 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	rasterizer.polygonMode = static_params.polygon_mode;
 	rasterizer.lineWidth = 1.0f;
 
-	vk::PipelineMultisampleStateCreateInfo multisampling {};
+	auto& multisampling = b.multisampling;
 	multisampling.sampleShadingEnable  = static_params.sample_shading_enable ? VK_TRUE : VK_FALSE;
 	multisampling.rasterizationSamples = vulkan_sample_count(static_params.samples);
 	multisampling.minSampleShading     = 1.0f;
 
-	vk::PipelineColorBlendAttachmentState color_blend_attachment[RENDER_COLOR_ATTACHMENTS_MAX] = {};
+	auto& color_blend_attachment = b.color_blend_attachment;
 	for (uint32_t i = 0; i < rendering.color_count; i++) {
 		EXIT_NOT_IMPLEMENTED((static_params.color_mask[i] & ~0x0fu) != 0);
 		color_blend_attachment[i].colorWriteMask =
@@ -414,16 +455,16 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 		                                           : color_blend_attachment[i].colorBlendOp);
 	}
 
-	vk::Bool32 color_write_enable[RENDER_COLOR_ATTACHMENTS_MAX] = {};
+	auto& color_write_enable = b.color_write_enable;
 	for (uint32_t i = 0; i < rendering.color_count; i++) {
 		color_write_enable[i] = VK_TRUE;
 	}
 
-	vk::PipelineColorWriteCreateInfoEXT color_write {};
+	auto& color_write = b.color_write;
 	color_write.attachmentCount    = rendering.color_count;
 	color_write.pColorWriteEnables = color_write_enable;
 
-	vk::PipelineColorBlendStateCreateInfo color_blending {};
+	auto& color_blending = b.color_blending;
 	// MoltenVK lacks VK_EXT_color_write_enable; drop the dynamic color-write struct on macOS
 	// and rely on each attachment's static colorWriteMask (all channels enabled by default).
 #if !defined(__APPLE__)
@@ -472,7 +513,7 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 
 	EXIT_NOT_IMPLEMENTED(pipeline.pipeline_layout == nullptr);
 
-	vk::PipelineDepthStencilStateCreateInfo depth_stencil_info {};
+	auto& depth_stencil_info = b.depth_stencil_info;
 	depth_stencil_info.depthBoundsTestEnable =
 #if defined(__APPLE__)
 	    VK_FALSE; // MoltenVK lacks the depthBounds feature; depth-bounds testing is disabled
@@ -482,7 +523,8 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	depth_stencil_info.minDepthBounds    = static_params.depth_min_bounds;
 	depth_stencil_info.maxDepthBounds    = static_params.depth_max_bounds;
 
-	std::vector<vk::DynamicState> dynamic_states {
+	auto& dynamic_states = b.dynamic_states;
+	dynamic_states       = {
 	    vk::DynamicState::eViewportWithCount,
 	    vk::DynamicState::eScissorWithCount,
 	    vk::DynamicState::eLineWidth,
@@ -507,14 +549,17 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 		dynamic_states.push_back(vk::DynamicState::eAttachmentFeedbackLoopEnableEXT);
 	}
 
-	vk::PipelineDynamicStateCreateInfo dynamic_state {};
+	auto& dynamic_state = b.dynamic_state;
 	dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
 	dynamic_state.pDynamicStates    = dynamic_states.data();
 
-	vk::GraphicsPipelineCreateInfo  pipeline_info {};
-	vk::PipelineRenderingCreateInfo rendering_info {};
+	auto& pipeline_info  = b.pipeline_info;
+	auto& rendering_info = b.rendering_info;
+	std::copy_n(rendering.color_formats.begin(),
+	            std::min<size_t>(rendering.color_formats.size(), b.color_formats.size()),
+	            b.color_formats.begin());
 	rendering_info.colorAttachmentCount    = rendering.color_count;
-	rendering_info.pColorAttachmentFormats = rendering.color_formats.data();
+	rendering_info.pColorAttachmentFormats = b.color_formats.data();
 	rendering_info.depthAttachmentFormat   = rendering.depth_format;
 	rendering_info.stencilAttachmentFormat = rendering.stencil_format;
 	pipeline_info.pNext                    = &rendering_info;
@@ -522,7 +567,7 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	pipeline_info.pStages                  = shader_stages;
 	pipeline_info.pVertexInputState        = mesh ? nullptr : &vertex_input_info;
 	pipeline_info.pInputAssemblyState      = mesh ? nullptr : &input_assembly;
-	vk::PipelineTessellationStateCreateInfo tessellation_state {};
+	auto& tessellation_state = b.tessellation_state;
 	tessellation_state.patchControlPoints =
 	    tessellation ? vs_input_info.tess.input_control_points : 3u;
 	pipeline_info.pTessellationState = (rect_list || tessellation) ? &tessellation_state : nullptr;
@@ -546,22 +591,62 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 		     (with_depth ? "true" : "false"), (static_params.blend_enable[0] ? "true" : "false"),
 		     dynamic_state.dynamicStateCount);
 	}
-	result = graphics.device.createGraphicsPipelines(driver_cache, 1, &pipeline_info, nullptr,
-	                                                 &pipeline.pipeline);
+	return build_ptr;
+}
+
+bool FinishGraphicsPipeline(GraphicContext& graphics, GraphicsPipelineBuild& build,
+                            vk::PipelineCache driver_cache, bool probe_only) {
+	auto& pipeline = *build.pipeline;
+	auto  info     = build.pipeline_info;
+	if (probe_only) {
+		info.flags |= vk::PipelineCreateFlagBits::eFailOnPipelineCompileRequired;
+	}
+	vk::Pipeline handle = nullptr;
+	const auto   result =
+	    graphics.device.createGraphicsPipelines(driver_cache, 1, &info, nullptr, &handle);
 	if (graphics_debug_dump_enabled()) {
 		LOGF("PipelineTrace: vkCreateGraphicsPipelines done result=%s pipeline=%p\n",
-		     vk::to_string(result).c_str(), static_cast<void*>(pipeline.pipeline));
+		     vk::to_string(result).c_str(), static_cast<void*>(handle));
+	}
+	if (probe_only && (result == vk::Result::ePipelineCompileRequired || handle == nullptr)) {
+		return false;
 	}
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
+	EXIT_NOT_IMPLEMENTED(handle == nullptr);
+	pipeline.pipeline = handle;
 
-	EXIT_NOT_IMPLEMENTED(pipeline.pipeline == nullptr);
+	if (build.tess_control_shader_module != nullptr) {
+		graphics.device.destroyShaderModule(build.tess_control_shader_module, nullptr);
+		build.tess_control_shader_module = nullptr;
+	}
+	if (build.tess_eval_shader_module != nullptr) {
+		graphics.device.destroyShaderModule(build.tess_eval_shader_module, nullptr);
+		build.tess_eval_shader_module = nullptr;
+	}
+	pipeline.ready.store(true, std::memory_order_release);
+	return true;
+}
 
-	if (tess_control_shader_module != nullptr) {
-		graphics.device.destroyShaderModule(tess_control_shader_module, nullptr);
+void DiscardGraphicsPipelineBuild(GraphicContext& graphics, GraphicsPipelineBuild& build) {
+	for (auto* module: {&build.tess_control_shader_module, &build.tess_eval_shader_module}) {
+		if (*module != nullptr) {
+			graphics.device.destroyShaderModule(*module, nullptr);
+			*module = nullptr;
+		}
 	}
-	if (tess_eval_shader_module != nullptr) {
-		graphics.device.destroyShaderModule(tess_eval_shader_module, nullptr);
-	}
+}
+
+void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& pipeline,
+                            const PipelineRenderingState&          rendering,
+                            const PipelineVertexInputState&        vertex_input,
+                            std::span<const ShaderVertexInputInfo> vertex_info,
+                            const ShaderPixelInputInfo*            ps_input_info,
+                            const PipelineCache::GraphicsPrograms& programs,
+                            const PipelineStaticParameters&        static_params,
+                            vk::PipelineCache                      driver_cache) {
+	auto build = PrepareGraphicsPipeline(graphics, pipeline, rendering, vertex_input, vertex_info,
+	                                     ps_input_info, programs, static_params);
+	FinishGraphicsPipeline(graphics, *build, driver_cache, false);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)

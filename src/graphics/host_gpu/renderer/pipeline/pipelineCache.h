@@ -9,8 +9,10 @@
 #include "graphics/host_gpu/vulkanCommon.h"
 #include "graphics/shader/shader.h"
 
+#include <atomic>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <span>
 #include <type_traits>
@@ -115,6 +117,8 @@ public:
 		vk::Pipeline            pipeline              = nullptr;
 		vk::DescriptorSetLayout descriptor_set_layout = nullptr;
 		bool                    uses_push_descriptors = false;
+		// False while a compile worker builds `pipeline`; the layouts above are always valid.
+		std::atomic<bool>       ready {true};
 	};
 
 	struct GraphicsPrograms {
@@ -144,8 +148,12 @@ public:
 	Pipeline& GetComputePipeline(const ShaderComputeInputInfo& input_info,
 	                             const ShaderProgram&          compute_program);
 
+	// Runs `task` on a background compile worker (below normal priority).
+	void RunInBackground(std::function<void()> task);
+
 private:
 	struct ProgramCache;
+	struct AsyncCompiler;
 
 	struct GraphicsPipelineKey {
 		PipelineRenderingState   rendering;
@@ -215,11 +223,42 @@ private:
 	                                                        m_graphics_pipelines;
 	std::unordered_map<uint64_t, std::unique_ptr<Pipeline>> m_compute_pipelines;
 	Common::Mutex m_mutex;
+	Common::Mutex m_save_mutex;
+	std::unique_ptr<AsyncCompiler> m_async;
+	bool                           m_async_pipelines        = false;
+	uint32_t                       m_created_since_save     = 0;
+	uint64_t                       m_last_save_qpc          = 0;
+	std::atomic<bool>              m_save_pending           = false;
 
 	void InitializeDriverCache();
+	// Writes the driver cache to disk and keeps it alive (safe while pipelines are created).
+	void WriteDriverCache();
+	// Called after each new pipeline: saves in the background at most once a minute, so a crash
+	// or a killed process no longer loses every pipeline compiled in the session.
+	void NotePipelineCreated();
 };
 
 void LogPipelineTrace(const char* phase, uint64_t vertex_program_id, uint64_t pixel_program_id);
+
+struct GraphicsPipelineBuild;
+struct GraphicsPipelineBuildDeleter {
+	void operator()(GraphicsPipelineBuild* build) const;
+};
+using GraphicsPipelineBuildPtr = std::unique_ptr<GraphicsPipelineBuild, GraphicsPipelineBuildDeleter>;
+// Creates the descriptor-set and pipeline layouts and records every create-info
+// vkCreateGraphicsPipelines needs; FinishGraphicsPipeline may then run on any thread.
+GraphicsPipelineBuildPtr PrepareGraphicsPipeline(GraphicContext& graphics,
+                                                 PipelineCache::Pipeline& pipeline,
+                                                 const PipelineRenderingState&          rendering,
+                                                 const PipelineVertexInputState&        vertex_input,
+                                                 std::span<const ShaderVertexInputInfo> vertex_info,
+                                                 const ShaderPixelInputInfo*            ps_input_info,
+                                                 const PipelineCache::GraphicsPrograms& programs,
+                                                 const PipelineStaticParameters& static_params);
+// probe_only: create only from the driver cache (returns false when a compile is required).
+bool FinishGraphicsPipeline(GraphicContext& graphics, GraphicsPipelineBuild& build,
+                            vk::PipelineCache driver_cache, bool probe_only);
+void DiscardGraphicsPipelineBuild(GraphicContext& graphics, GraphicsPipelineBuild& build);
 void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& pipeline,
                             const PipelineRenderingState&          rendering,
                             const PipelineVertexInputState&        vertex_input,

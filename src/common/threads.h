@@ -38,6 +38,9 @@ public:
 	// critical path that block rather than spin (GPU command processing, interrupt delivery,
 	// presentation), so busy-waiting guest threads at normal priority cannot starve them.
 	static void RaiseCurrentPriority();
+	// Lowers the calling emulator thread below normal priority, for background work (pipeline
+	// compiles, cache writes) that must not take CPU time from guest or GPU command threads.
+	static void LowerCurrentPriority();
 
 	// Get current thread id
 	// Once a thread has finished, the id may be reused by another thread.

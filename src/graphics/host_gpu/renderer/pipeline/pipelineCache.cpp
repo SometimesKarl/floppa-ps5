@@ -25,6 +25,10 @@
 #include <cctype>
 #include <chrono>
 #include <cinttypes>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -414,7 +418,17 @@ struct PipelineCache::ProgramCache {
 		                                               specialization, push_data_start_dword);
 		const auto compile_end = Common::Timer::QueryPerformanceCounter();
 		DumpShaderOriginal(stage_name, options.shader_hash, params.code, result.decoded_dump);
-		if (!ValidateShaderSpirv(options.dump_label, options.shader_hash, result.spirv)) {
+		if (Config::ShaderValidationEnabled() && background) {
+			// Validation is a diagnostic (~14 ms per shader, up to 0.3 s): run it on a compile
+			// worker so a new shader does not stall the frame; a failure still ends the run.
+			background([label = options.dump_label, hash = options.shader_hash, stage_name,
+			            spirv = result.spirv] {
+				if (!ValidateShaderSpirv(label, hash, spirv)) {
+					DumpShaderSpirv(stage_name, hash, spirv);
+					EXIT("%s failed hash=0x%016" PRIx64 ": SPIR-V validation failed\n", label, hash);
+				}
+			});
+		} else if (!ValidateShaderSpirv(options.dump_label, options.shader_hash, result.spirv)) {
 			DumpShaderSpirv(stage_name, options.shader_hash, result.spirv);
 			EXIT("%s failed hash=0x%016" PRIx64 ": SPIR-V validation failed\n", options.dump_label,
 			     options.shader_hash);
@@ -589,13 +603,157 @@ struct PipelineCache::ProgramCache {
 	vk::Device                                                  device;
 	uint64_t                                                    next_shader_id = 0;
 	double                                                      last_translate_ms = 0;
+	std::function<void(std::function<void()>)>                  background;
 };
+
+// Background workers for driver pipeline compiles (0.1-4 s each for this title's shaders on AMD),
+// SPIR-V validation and driver-cache writes. Below normal priority: the game's threads and the
+// GPU command thread come first.
+struct PipelineCache::AsyncCompiler {
+	struct Job {
+		GraphicsPipelineBuildPtr build;
+		std::function<void()>    task;
+	};
+
+	AsyncCompiler(GraphicContext& graphics, vk::PipelineCache driver_cache, uint32_t count)
+	    : graphics(graphics), driver_cache(driver_cache) {
+		for (uint32_t i = 0; i < count; i++) {
+			workers.emplace_back([this, i] { Run(i); });
+		}
+	}
+	~AsyncCompiler() { Close(); }
+	KYTY_CLASS_NO_COPY(AsyncCompiler);
+
+	// Takes the job only when it returns true; a closed compiler leaves it with the caller.
+	bool Submit(Job& job) {
+		{
+			std::scoped_lock lock(mutex);
+			if (closed) {
+				return false;
+			}
+			queue.push_back(std::move(job));
+		}
+		cv.notify_one();
+		return true;
+	}
+
+	// Waits for the running jobs; queued pipeline builds are discarded (their draws stay
+	// skipped), queued tasks are dropped. Idempotent.
+	void Close() {
+		{
+			std::scoped_lock lock(mutex);
+			if (closed) {
+				return;
+			}
+			closed = true;
+		}
+		cv.notify_all();
+		for (auto& worker: workers) {
+			worker.join();
+		}
+		workers.clear();
+		for (auto& job: queue) {
+			if (job.build != nullptr) {
+				DiscardGraphicsPipelineBuild(graphics, *job.build);
+			}
+		}
+		queue.clear();
+	}
+
+	void Run(uint32_t index) {
+		const auto name = fmt::format("Thread_PipelineCompile{}", index);
+		KYTY_PROFILER_THREAD(name.c_str());
+		Common::Thread::LowerCurrentPriority();
+		for (;;) {
+			Job job;
+			{
+				std::unique_lock lock(mutex);
+				cv.wait(lock, [this] { return closed || !queue.empty(); });
+				if (closed) {
+					return;
+				}
+				job = std::move(queue.front());
+				queue.pop_front();
+			}
+			if (job.build != nullptr) {
+				const auto begin = Common::Timer::QueryPerformanceCounter();
+				FinishGraphicsPipeline(graphics, *job.build, driver_cache, false);
+				if (CompileLogEnabled()) {
+					const auto end = Common::Timer::QueryPerformanceCounter();
+					std::printf("pipeline qpc=%" PRIu64 " kind=gfx-async worker=%u ms=%.2f\n", end,
+					            index, QpcMs(begin, end));
+				}
+			}
+			if (job.task) {
+				job.task();
+			}
+		}
+	}
+
+	GraphicContext&          graphics;
+	vk::PipelineCache        driver_cache;
+	std::mutex               mutex;
+	std::condition_variable  cv;
+	std::deque<Job>          queue;
+	std::vector<std::thread> workers;
+	bool                     closed = false;
+};
+
+namespace {
+
+bool AsyncPipelinesEnabled() {
+	const char* value = std::getenv("KYTY_ASYNC_PIPELINES");
+	return value == nullptr || value[0] != '0';
+}
+
+uint32_t CompileWorkerCount() {
+	if (const char* value = std::getenv("KYTY_PIPELINE_WORKERS"); value != nullptr) {
+		return std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1, 8);
+	}
+	return std::clamp<uint32_t>(std::thread::hardware_concurrency() / 4, 1, 3);
+}
+
+} // namespace
 
 PipelineCache::PipelineCache(GraphicContext& graphics)
     : m_graphics(graphics), m_program_cache(std::make_unique<ProgramCache>(graphics.device)) {
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
 	ShaderRecompiler::IR::SetSrtDirectReader(&Libs::LibKernel::Memory::TryReadGuestWithoutFault);
 	InitializeDriverCache();
+	m_async_pipelines = AsyncPipelinesEnabled();
+	m_async = std::make_unique<AsyncCompiler>(m_graphics, m_driver_cache, CompileWorkerCount());
+	m_program_cache->background = [this](std::function<void()> task) {
+		RunInBackground(std::move(task));
+	};
+	PipelineCacheLog("Pipeline compiles: {} ({} workers, driver-cache probe {})",
+	                 m_async_pipelines ? "asynchronous" : "synchronous", CompileWorkerCount(),
+	                 m_graphics.pipeline_cache_control_enabled ? "on" : "off");
+}
+
+void PipelineCache::RunInBackground(std::function<void()> task) {
+	AsyncCompiler::Job job {.build = nullptr, .task = std::move(task)};
+	if (m_async == nullptr || !m_async->Submit(job)) {
+		job.task();
+	}
+}
+
+void PipelineCache::NotePipelineCreated() {
+	m_created_since_save++;
+	const auto now = Common::Timer::QueryPerformanceCounter();
+	if (m_last_save_qpc == 0) {
+		m_last_save_qpc = now;
+	}
+	const auto interval = Common::Timer::QueryPerformanceFrequency() * 60;
+	if (m_driver_cache == nullptr || now - m_last_save_qpc < interval ||
+	    m_save_pending.exchange(true)) {
+		return;
+	}
+	m_created_since_save = 0;
+	m_last_save_qpc      = now;
+	RunInBackground([this] {
+		WriteDriverCache();
+		m_save_pending.store(false);
+	});
 }
 
 PipelineCache::~PipelineCache() {
@@ -703,7 +861,20 @@ void PipelineCache::InitializeDriverCache() {
 }
 
 void PipelineCache::Save() {
+	if (m_async != nullptr) {
+		m_async->Close();
+	}
 	Common::LockGuard lock(m_mutex);
+	if (m_driver_cache == nullptr) {
+		return;
+	}
+	WriteDriverCache();
+	m_graphics.device.destroyPipelineCache(m_driver_cache, nullptr);
+	m_driver_cache = nullptr;
+}
+
+void PipelineCache::WriteDriverCache() {
+	Common::LockGuard save_lock(m_save_mutex);
 	if (m_driver_cache == nullptr) {
 		return;
 	}
@@ -757,8 +928,6 @@ void PipelineCache::Save() {
 	}
 	PipelineCacheLog("Vulkan pipeline cache: saved {} bytes to {}", payload.size(),
 	                 Common::PathToString(m_driver_cache_path));
-	m_graphics.device.destroyPipelineCache(m_driver_cache, nullptr);
-	m_driver_cache = nullptr;
 }
 
 PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(
@@ -1010,17 +1179,38 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 	auto cached = std::make_unique<Pipeline>();
 	LogPipelineTrace("CreatePipelineInternal begin", vs_id, ps_id);
 	const auto create_begin = Common::Timer::QueryPerformanceCounter();
-	CreatePipelineInternal(m_graphics, *cached, rendering, key.vertex_input, vertex_info,
-	                       ps_input_info, programs, static_params, m_driver_cache);
+	auto       build = PrepareGraphicsPipeline(m_graphics, *cached, rendering, key.vertex_input,
+	                                           vertex_info, ps_input_info, programs, static_params);
+	bool       deferred = false;
+	if (m_async_pipelines) {
+		// A driver-cache hit takes ~0.2 ms: create it now so the draw is not skipped. A real
+		// compile (0.1-4 s) goes to a worker; until it finishes, draws using it are skipped
+		// instead of the whole frame stalling behind the driver.
+		if (!m_graphics.pipeline_cache_control_enabled ||
+		    !FinishGraphicsPipeline(m_graphics, *build, m_driver_cache, true)) {
+			cached->ready.store(false, std::memory_order_relaxed);
+			AsyncCompiler::Job job {.build = std::move(build), .task = {}};
+			deferred = m_async->Submit(job);
+			if (!deferred) {
+				build = std::move(job.build);
+				cached->ready.store(true, std::memory_order_relaxed);
+			}
+		}
+	}
+	if (!deferred && cached->pipeline == nullptr) {
+		FinishGraphicsPipeline(m_graphics, *build, m_driver_cache, false);
+	}
 	if (CompileLogEnabled()) {
 		const auto create_end = Common::Timer::QueryPerformanceCounter();
-		std::printf("pipeline qpc=%" PRIu64 " kind=gfx vs=%" PRIu64 " ps=%" PRIu64 " ms=%.2f total=%zu\n",
-		            create_end, vs_id, ps_id, QpcMs(create_begin, create_end),
-		            m_graphics_pipelines.size() + 1);
+		std::printf("pipeline qpc=%" PRIu64 " kind=%s vs=%" PRIu64 " ps=%" PRIu64
+		            " ms=%.2f total=%zu\n",
+		            create_end, deferred ? "gfx-deferred" : "gfx", vs_id, ps_id,
+		            QpcMs(create_begin, create_end), m_graphics_pipelines.size() + 1);
 	}
 	LogPipelineTrace("CreatePipelineInternal done", vs_id, ps_id);
+	NotePipelineCreated();
 
-	EXIT_NOT_IMPLEMENTED(cached->pipeline == nullptr);
+	EXIT_NOT_IMPLEMENTED(!deferred && cached->pipeline == nullptr);
 	EXIT_NOT_IMPLEMENTED(cached->pipeline_layout == nullptr);
 
 	auto [iter, inserted] = m_graphics_pipelines.emplace(std::move(key), std::move(cached));
@@ -1056,6 +1246,7 @@ PipelineCache::GetComputePipeline(const ShaderComputeInputInfo& input_info,
 		            compute_program.id, QpcMs(create_begin, create_end),
 		            m_compute_pipelines.size() + 1);
 	}
+	NotePipelineCreated();
 
 	EXIT_NOT_IMPLEMENTED(cached->pipeline == nullptr);
 	EXIT_NOT_IMPLEMENTED(cached->pipeline_layout == nullptr);
