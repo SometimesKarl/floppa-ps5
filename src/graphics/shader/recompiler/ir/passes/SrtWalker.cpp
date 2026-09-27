@@ -15,10 +15,17 @@ namespace Libs::Graphics::ShaderRecompiler::IR {
 
 namespace {
 std::atomic<SrtDirectReader> g_direct_reader {nullptr};
+thread_local SrtReadObserver t_read_observer = nullptr;
+thread_local void*           t_read_context  = nullptr;
 } // namespace
 
 void SetSrtDirectReader(SrtDirectReader reader) {
 	g_direct_reader.store(reader, std::memory_order_release);
+}
+
+void SetSrtReadObserver(SrtReadObserver observer, void* context) {
+	t_read_observer = observer;
+	t_read_context  = context;
 }
 
 SrtRuntime CleanRuntime(SrtRuntime runtime) {
@@ -653,6 +660,9 @@ bool SrtWalker::EvaluateRawRead(const Inst& inst, uint64_t& result) {
 		const auto direct = g_direct_reader.load(std::memory_order_acquire);
 		if (direct == nullptr || !direct(address, &word, sizeof(word))) {
 			std::memcpy(&word, reinterpret_cast<const void*>(address), sizeof(word));
+		}
+		if (t_read_observer != nullptr) {
+			t_read_observer(t_read_context, address, word);
 		}
 	}
 	result = word;

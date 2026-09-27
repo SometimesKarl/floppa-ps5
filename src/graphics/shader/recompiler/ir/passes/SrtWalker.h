@@ -27,6 +27,11 @@ enum class RuntimeValueType { Any, Integer };
 using SrtDirectReader = bool (*)(uint64_t address, void* data, uint64_t size);
 void SetSrtDirectReader(SrtDirectReader reader);
 
+// Observes, on the calling thread while set, every word the walker reads directly from guest
+// memory (runtimes without read_memory). Used to validate cached materializations.
+using SrtReadObserver = void (*)(void* context, uint64_t address, uint32_t value);
+void SetSrtReadObserver(SrtReadObserver observer, void* context);
+
 // Collects reachable ReadConst values. Immediate offsets receive compact flat-buffer slots;
 // dynamic offsets remain explicit and are never assigned a fake slot.
 void BuildSrtPlan(Program& program);

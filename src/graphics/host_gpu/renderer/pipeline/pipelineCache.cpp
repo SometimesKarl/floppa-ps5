@@ -22,7 +22,10 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
+#include <cinttypes>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fmt/format.h>
 #include <limits>
@@ -198,6 +201,28 @@ struct PipelineCache::ProgramCache {
 		ShaderProgram                                handle;
 	};
 
+	// One materialization and every guest word it read. The walk is a function of the user
+	// data, the shader base and those reads (addresses follow from earlier values), so equal
+	// user data and equal re-read words reproduce the same resources without the walk.
+	struct MaterializeRead {
+		uint64_t address     = 0;
+		uint32_t count       = 0;
+		uint32_t first_value = 0;
+		bool     strict      = false;
+		bool     ok          = false;
+	};
+	struct MaterializeMemo {
+		std::vector<uint32_t>                        user_data;
+		uint64_t                                     shader_base = 0;
+		std::vector<MaterializeRead>                 reads;
+		std::vector<uint32_t>                        values;
+		ShaderRecompiler::IR::ResourceSnapshot       resources;
+		ShaderRecompiler::IR::ResourceSpecialization specialization;
+		uint64_t                                     last_use = 0;
+		bool                                         valid    = false;
+	};
+	static constexpr size_t MemoSlots = 4;
+
 	struct SourceEntry {
 		explicit SourceEntry(ShaderRecompiler::IR::ResourcePlan plan)
 		    : resource_plan(std::move(plan)) {
@@ -209,7 +234,111 @@ struct PipelineCache::ProgramCache {
 		ShaderRecompiler::IR::ResourceSpecialization specialization;
 		std::vector<Permutation>                    permutations;
 		bool                                        skip_dispatch = false;
+		std::array<MaterializeMemo, MemoSlots>      memo;
+		int                                         current_memo = -1;
 	};
+
+	struct MemoCapture {
+		std::vector<MaterializeRead>* reads  = nullptr;
+		std::vector<uint32_t>*        values = nullptr;
+	};
+
+	static bool CapturingStrictRead(void* userdata, uint64_t address, std::span<uint32_t> values) {
+		auto&      capture = *static_cast<MemoCapture*>(userdata);
+		const bool ok      = ReadShaderGuestMemory(nullptr, address, values);
+		capture.reads->push_back({address, static_cast<uint32_t>(values.size()),
+		                          static_cast<uint32_t>(capture.values->size()), true, ok});
+		if (ok) {
+			capture.values->insert(capture.values->end(), values.begin(), values.end());
+		}
+		return ok;
+	}
+
+	static void ObserveDirectRead(void* context, uint64_t address, uint32_t value) {
+		auto& capture = *static_cast<MemoCapture*>(context);
+		capture.reads->push_back(
+		    {address, 1, static_cast<uint32_t>(capture.values->size()), false, true});
+		capture.values->push_back(value);
+	}
+
+	static bool MemoStillValid(const MaterializeMemo& memo) {
+		thread_local std::vector<uint32_t> scratch;
+		for (const auto& read: memo.reads) {
+			if (read.strict) {
+				scratch.resize(read.count);
+				const bool ok = ReadShaderGuestMemory(nullptr, read.address, scratch);
+				if (ok != read.ok || (ok && !std::equal(scratch.begin(), scratch.end(),
+				                                        memo.values.begin() + read.first_value))) {
+					return false;
+				}
+			} else {
+				uint32_t word = 0;
+				if (!Libs::LibKernel::Memory::TryReadGuestWithoutFault(read.address, &word,
+				                                                       sizeof(word))) {
+					std::memcpy(&word, reinterpret_cast<const void*>(read.address), sizeof(word));
+				}
+				if (word != memo.values[read.first_value]) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	// MaterializeResources for an existing entry, reusing a recent result whose inputs still hold.
+	void MaterializeCached(SourceEntry& entry, std::span<const uint32_t> user_data,
+	                       uint64_t shader_base) {
+		static const bool stats   = std::getenv("KYTY_SRT_MEMO_STATS") != nullptr;
+		static uint64_t   hits    = 0;
+		static uint64_t   misses  = 0;
+		static auto       printed = std::chrono::steady_clock::now();
+		++memo_clock;
+		for (size_t i = 0; i < entry.memo.size(); i++) {
+			auto& memo = entry.memo[i];
+			if (!memo.valid || memo.shader_base != shader_base ||
+			    !std::ranges::equal(memo.user_data, user_data) || !MemoStillValid(memo)) {
+				continue;
+			}
+			if (entry.current_memo != static_cast<int>(i)) {
+				entry.resources      = memo.resources;
+				entry.specialization = memo.specialization;
+				entry.current_memo   = static_cast<int>(i);
+			}
+			memo.last_use = memo_clock;
+			++hits;
+			return;
+		}
+		++misses;
+		auto& slot = *std::ranges::min_element(entry.memo, {}, [](const MaterializeMemo& memo) {
+			return memo.valid ? memo.last_use : 0;
+		});
+		slot.valid = false;
+		slot.reads.clear();
+		slot.values.clear();
+		MemoCapture capture {&slot.reads, &slot.values};
+		const ShaderRecompiler::IR::SrtRuntime runtime {
+		    .user_data                  = user_data,
+		    .shader_base                = shader_base,
+		    .userdata                   = &capture,
+		    .read_specialization_memory = CapturingStrictRead,
+		};
+		ShaderRecompiler::IR::SetSrtReadObserver(ObserveDirectRead, &capture);
+		const bool materialized = ShaderRecompiler::IR::MaterializeResources(
+		    entry.resource_plan, runtime, entry.resources, entry.specialization);
+		ShaderRecompiler::IR::SetSrtReadObserver(nullptr, nullptr);
+		EXIT_IF(!materialized);
+		slot.user_data.assign(user_data.begin(), user_data.end());
+		slot.shader_base    = shader_base;
+		slot.resources      = entry.resources;
+		slot.specialization = entry.specialization;
+		slot.last_use       = memo_clock;
+		slot.valid          = true;
+		entry.current_memo  = static_cast<int>(&slot - entry.memo.data());
+		if (stats && std::chrono::steady_clock::now() - printed > std::chrono::seconds(30)) {
+			printed = std::chrono::steady_clock::now();
+			std::printf("SRT memo: %" PRIu64 " hits, %" PRIu64 " misses\n", hits, misses);
+		}
+	}
 
 	struct ProgramKeyHash {
 		std::size_t operator()(const ProgramKey& key) const {
@@ -303,9 +432,7 @@ struct PipelineCache::ProgramCache {
 		    .read_specialization_memory = ReadShaderGuestMemory,
 		};
 		if (entry != programs.end()) {
-			EXIT_IF(!ShaderRecompiler::IR::MaterializeResources(
-			    entry->second.resource_plan, runtime, entry->second.resources,
-			    entry->second.specialization));
+			MaterializeCached(entry->second, user_data, params.Base());
 			if (const auto permutation = std::ranges::find_if(
 			        entry->second.permutations, [&](const Permutation& candidate) {
 				        const auto& layout = candidate.program.bindings;
@@ -410,6 +537,7 @@ struct PipelineCache::ProgramCache {
 
 	std::unordered_map<ProgramKey, SourceEntry, ProgramKeyHash> programs;
 	ProgramKey                                                  lookup_key;
+	uint64_t                                                    memo_clock = 0;
 	vk::Device                                                  device;
 	uint64_t                                                    next_shader_id = 0;
 };
