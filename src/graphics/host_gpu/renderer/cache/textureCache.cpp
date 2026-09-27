@@ -21,8 +21,10 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cinttypes>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -2174,13 +2176,29 @@ void TextureCache::RunGarbageCollector() {
 		const uint64_t age       = std::min<uint64_t>(aggressive ? 160 : pressured ? 80 : 16, tick);
 		size_t         deletions = aggressive ? 40 : pressured ? 20 : 10;
 		std::vector<ImageId> candidates;
+		std::vector<size_t>  kept;
 		candidates.reserve(deletions);
 		// Deleting depth recursively deletes its stencil association, so finish LRU traversal
-		// first.
+		// first. Images this collector never frees (depth pairs, GPU-written tiled images that
+		// have no download path) are moved to the young end instead of being counted: left at
+		// the old end they filled every pass's candidate window, nothing was freed any more,
+		// and video memory grew until a level change ran out of it (ASTRO BOT, streamBuffer.cpp).
+		size_t scanned = 0;
 		m_lru_cache.ForEachItemBelow(tick - age, [&](ImageId id) {
-			candidates.push_back(id);
-			return candidates.size() == deletions;
+			const auto* owner = m_slot_images.try_get(id);
+			if (owner != nullptr && owner->registered &&
+			    (owner->depth_id || (owner->IsGpuModified() && owner->info.IsTiled() &&
+			                         SafeToDownload(*owner)))) {
+				kept.push_back(owner->lru_id);
+			} else {
+				candidates.push_back(id);
+			}
+			return candidates.size() == deletions || ++scanned >= 4096;
 		});
+		for (const auto lru_id: kept) {
+			m_lru_cache.Touch(lru_id, tick);
+		}
+		m_gc_kept += kept.size();
 		for (const auto id: candidates) {
 			if (deletions == 0) {
 				break;
@@ -2203,6 +2221,7 @@ void TextureCache::RunGarbageCollector() {
 				}
 			}
 			FreeImage(id);
+			m_gc_freed++;
 			if (m_total_used_memory < m_critical_gc_memory && aggressive) {
 				deletions >>= 2;
 				aggressive = false;
@@ -2216,6 +2235,35 @@ void TextureCache::RunGarbageCollector() {
 	collect(false);
 	if (m_total_used_memory >= m_critical_gc_memory) {
 		collect(true);
+	}
+	static const bool print_stats = std::getenv("KYTY_MEMORY_STATS") != nullptr;
+	if (print_stats) {
+		static auto last = std::chrono::steady_clock::now();
+		const auto  now  = std::chrono::steady_clock::now();
+		if (now - last >= std::chrono::seconds(30)) {
+			last = now;
+			uint64_t images = 0, bytes = 0, tiled_gpu = 0, tiled_gpu_bytes = 0;
+			m_slot_images.ForEach([&](ImageId, const Image& image) {
+				if (!image.registered) {
+					return;
+				}
+				images++;
+				bytes += image.AccountedSize();
+				if (image.IsGpuModified() && image.info.IsTiled()) {
+					tiled_gpu++;
+					tiled_gpu_bytes += image.AccountedSize();
+				}
+			});
+			std::printf("TextureCache: %" PRIu64 " images %.0f MiB (GPU-written tiled %" PRIu64
+			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
+			            ", kept %" PRIu64 " in 30 s\n",
+			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
+			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
+			            m_gc_freed, m_gc_kept);
+			std::fflush(stdout);
+			m_gc_freed = 0;
+			m_gc_kept  = 0;
+		}
 	}
 }
 

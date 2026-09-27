@@ -199,6 +199,8 @@ private:
 	};
 	std::unordered_map<uint64_t, DccCheck>            m_dcc_checks;
 	uint64_t                                          m_total_used_memory  = 0;
+	uint64_t m_gc_freed = 0;
+	uint64_t m_gc_kept  = 0;
 	uint64_t                                          m_trigger_gc_memory  = 0;
 	uint64_t                                          m_pressure_gc_memory = 1536ull * 1024 * 1024;
 	uint64_t         m_critical_gc_memory     = 3ull * 1024 * 1024 * 1024;
