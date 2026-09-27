@@ -701,9 +701,12 @@ struct PipelineCache::AsyncCompiler {
 
 namespace {
 
+// Opt-in: a draw skipped while its pipeline compiles is never redrawn, and ASTRO BOT renders
+// some textures once (terrain materials): skipping left the desert sand flat yellow and rocks
+// black for the rest of the session. KYTY_ASYNC_PIPELINES=1 trades that risk for no stalls.
 bool AsyncPipelinesEnabled() {
 	const char* value = std::getenv("KYTY_ASYNC_PIPELINES");
-	return value == nullptr || value[0] != '0';
+	return value != nullptr && value[0] == '1';
 }
 
 uint32_t CompileWorkerCount() {
