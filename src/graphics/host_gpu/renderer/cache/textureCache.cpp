@@ -115,6 +115,18 @@ constexpr uint64_t NumFramesBeforeRemoval = 32;
 	return true;
 }
 
+// Whether any metadata code (DCC 0x00/0x40/0x80/0xc0 or a register clear) decodes to a clear
+// for this view; when none does, the metadata cannot request one.
+[[nodiscard]] bool AnyColorClearCode(const TextureCache::ImageDesc& desc) {
+	vk::ClearColorValue clear {};
+	for (const uint8_t code: {0x00, 0x20, 0x40, 0x80, 0xc0}) {
+		if (DecodeColorClear(desc, code, clear)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 [[nodiscard]] std::vector<vk::BufferImageCopy> BuildDepthCopies(const ImageInfo& info,
                                                               uint64_t slice_stride,
                                                               vk::ImageAspectFlags aspect) {
@@ -1215,6 +1227,30 @@ void TextureCache::MaterializeColorClear(ImageId id, const ImageDesc& desc,
 		if (desc.type != BindingType::VideoOut &&
 		    MaterializeDccClearOnGpu(id, desc, first, image_first, count, layers)) {
 			return;
+		}
+		// The readback below waits for the whole GPU queue. When no metadata code decodes to a
+		// clear for this view, the slices below would all be skipped, so there is nothing to read.
+		if (!AnyColorClearCode(desc)) {
+			return;
+		}
+		static const bool log_drains = std::getenv("KYTY_COLOR_CLEAR_LOG") != nullptr;
+		if (log_drains) {
+			static std::atomic<uint64_t> drains {0};
+			const auto                   n = drains.fetch_add(1, std::memory_order_relaxed);
+			if (n < 16 || n % 500 == 0) {
+				std::scoped_lock lock {m_lock};
+				const auto&      image = m_slot_images[id];
+				std::printf("ColorClear drain #%llu: kind %d type %d fmt %d %ux%ux%u layers %u samples %u "
+				            "depth_id %d volume %d color_att %d meta 0x%llx+0x%llx first %u count %u\n",
+				            static_cast<unsigned long long>(n), static_cast<int>(desc.info.metadata.kind),
+				            static_cast<int>(desc.type), static_cast<int>(desc.view_info.format),
+				            image.info.extent.width, image.info.extent.height, image.info.extent.depth,
+				            layers, image.info.samples, image.depth_id ? 1 : 0,
+				            image.info.IsVolume() ? 1 : 0,
+				            (image.backing.usage & vk::ImageUsageFlagBits::eColorAttachment) ? 1 : 0,
+				            static_cast<unsigned long long>(range.address),
+				            static_cast<unsigned long long>(range.size), first, count);
+			}
 		}
 		m_buffer_cache.ReadMemory(range.address, range.size, false);
 	}

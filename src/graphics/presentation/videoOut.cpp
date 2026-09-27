@@ -1580,6 +1580,11 @@ KYTY_SYSV_ABI int VideoOutRegisterBuffers2(int handle, int set_index, int buffer
 	     attribute->aspect_ratio, attribute->width, attribute->height, attribute->pitch_in_pixel,
 	     attribute->option, category);
 
+	// The game's presentation size (it picks it from the reported output resolution).
+	std::printf("VideoOut: %d display buffers %ux%u (set %d, format 0x%" PRIx64 ", category %d)\n",
+	            buffer_num, attribute->width, attribute->height, set_index, attribute->pixel_format,
+	            category);
+
 	if (option != nullptr) {
 		return VIDEO_OUT_ERROR_INVALID_OPTION;
 	}
