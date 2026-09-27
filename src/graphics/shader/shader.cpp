@@ -102,6 +102,23 @@ static void ReadShaderMemory(uint64_t address, void* data, uint64_t size) {
 	}
 }
 
+// Vertex attribute and buffer tables often share pages with GPU-written data. Reading them
+// through the backing alias when their own bytes are clean avoids the page fault, which would
+// drain the whole queue on the GPU thread (ASTRO BOT: ~2.5 drains, ~5 ms per frame).
+static void ReadVertexTable(const uint32_t* address, uint32_t* data, uint32_t dwords) {
+	const auto vaddr = reinterpret_cast<uint64_t>(address);
+	const auto size  = static_cast<uint64_t>(dwords) * sizeof(uint32_t);
+	if (!LibKernel::Memory::TryReadGpuCleanBacking(vaddr, data, size)) {
+		static std::atomic<uint32_t> log_count {0};
+		if (log_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Shader: vertex table at 0x%016" PRIx64 " was written by the GPU; "
+			            "reading it waits for the queue\n",
+			            vaddr);
+		}
+		std::memcpy(data, address, size);
+	}
+}
+
 static uint64_t GetDeclaredShaderHash(uint64_t shader_addr) {
 	EXIT_IF(shader_addr == 0);
 
@@ -415,20 +432,21 @@ static void ShaderApplyAttribSemantics(ShaderVertexInputInfo& info,
 		uint32_t reg  = in.hardware_mapping;
 		uint32_t size = in.size_in_elements;
 
+		uint32_t attribute = 0;
+		ReadVertexTable(&attrib[in.semantic], &attribute, 1);
 		if (debug_dump) {
-			LOGF("reg = %u, size = %u, va[%u] = 0x%08" PRIx32 "\n", reg, size, i,
-			     attrib[in.semantic]);
+			LOGF("reg = %u, size = %u, va[%u] = 0x%08" PRIx32 "\n", reg, size, i, attribute);
 		}
 
-		size_t index = attrib[in.semantic] & 0x1fu;
-		auto   format =
-		    static_cast<Prospero::VertexAttribFormat>((attrib[in.semantic] >> 5u) & 0x1ffu);
-		uint32_t offset      = (attrib[in.semantic] >> 14u) & 0xfffu;
-		uint32_t fetch_index = (attrib[in.semantic] >> 26u) & 0x1u;
+		size_t index = attribute & 0x1fu;
+		auto   format = static_cast<Prospero::VertexAttribFormat>((attribute >> 5u) & 0x1ffu);
+		uint32_t offset      = (attribute >> 14u) & 0xfffu;
+		uint32_t fetch_index = (attribute >> 26u) & 0x1u;
 
 		EXIT_NOT_IMPLEMENTED(index >= ShaderVertexInputInfo::RES_MAX);
 
-		const auto* sharp = &buffer[index * 4];
+		std::array<uint32_t, 4> sharp {};
+		ReadVertexTable(&buffer[index * 4], sharp.data(), 4);
 
 		EXIT_NOT_IMPLEMENTED(info.resources_num >= ShaderVertexInputInfo::RES_MAX);
 

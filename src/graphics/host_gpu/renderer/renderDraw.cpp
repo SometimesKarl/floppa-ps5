@@ -458,6 +458,7 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
                                                  uint32_t color_count, RenderDepthInfo& depth,
                                                  vk::ImageAspectFlags& feedback_aspects,
                                                  std::span<PreparedBindings* const> stages) {
+	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(colors == nullptr || color_count > RENDER_COLOR_ATTACHMENTS_MAX);
 	feedback_aspects = {};
 	auto&       cache = m_context.GetTextureCache();
@@ -670,6 +671,7 @@ struct PreparedVertexBuffers {
 
 static PreparedVertexBuffers AcquireVertexBuffers(CommandBuffer&               buffer,
                                                   const ShaderVertexInputInfo& vs_input_info) {
+	KYTY_PROFILER_FUNCTION();
 	EXIT_IF(vs_input_info.buffers_num < 0 ||
 	        vs_input_info.buffers_num > ShaderVertexInputInfo::RES_MAX);
 
@@ -840,6 +842,7 @@ static PrimitiveRestartMode GetPrimitiveRestartMode(const CommandBuffer& buffer,
 
 static bool ResolvePrimitiveRestart(const CommandBuffer& buffer,
                                     const DrawIndexBufferSource& source) {
+	KYTY_PROFILER_FUNCTION();
 	const auto element_size = source.guest_element_size;
 	switch (GetPrimitiveRestartMode(buffer, element_size)) {
 		case PrimitiveRestartMode::Off: return false;
@@ -864,6 +867,7 @@ static bool ResolvePrimitiveRestart(const CommandBuffer& buffer,
 
 static void RefreshShaders(CommandBuffer& buffer, const DrawCallInfo& draw,
                            DrawRenderState& state) {
+	KYTY_PROFILER_FUNCTION();
 	auto& ctx    = buffer.GetRegisters();
 	auto& sh_ctx = buffer.GetShaders();
 
@@ -934,6 +938,7 @@ bool RenderExecutor::PrepareDrawRenderState(CommandBuffer& buffer, const DrawCal
 
 static PreparedIndexBuffer PrepareIndexBuffer(CommandBuffer&               buffer,
                                               const DrawIndexBufferSource& source) {
+	KYTY_PROFILER_FUNCTION();
 	PreparedIndexBuffer prepared;
 	if (source.size == 0) {
 		return prepared;
@@ -999,6 +1004,7 @@ static void LogDrawStateIfNeeded(const CommandBuffer& buffer, const DrawCallInfo
 static void EmitDrawPrimitives(const HW::UserConfig& ucfg, vk::CommandBuffer vk_buffer,
                                const DrawCallInfo& draw, const DrawEmitInfo& emit,
                                vk::Buffer args_buffer, vk::DeviceSize args_offset) {
+	KYTY_PROFILER_FUNCTION();
 	if (args_buffer != nullptr) {
 		// The guest argument layouts are VkDrawIndirectCommand and VkDrawIndexedIndirectCommand.
 		// Topologies that need the counts on the CPU never reach here (CanDraw*FromGpuArgs).
@@ -1049,6 +1055,7 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
                                          vk::PrimitiveTopology topology, const DrawEmitInfo& emit,
                                          const DrawIndexBufferSource& index_source,
 	                                     bool primitive_restart_enable) {
+	KYTY_PROFILER_FUNCTION();
 	auto& ucfg = buffer.GetUserConfig();
 	const auto vertex_stages =
 	    std::span {state.vertex_info.data(), state.programs.VertexStageCount()};

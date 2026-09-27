@@ -198,6 +198,7 @@ void CommandScheduler::Begin(HW::Context& registers, HW::UserConfig& user_config
 }
 
 void CommandScheduler::BeginRendering(const RenderState& state) {
+	KYTY_PROFILER_FUNCTION();
 	Current().BeginRendering(state);
 }
 
