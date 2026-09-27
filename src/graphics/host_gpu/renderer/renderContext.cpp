@@ -188,7 +188,9 @@ void RenderContext::DeleteInterruptEq(LibKernel::EventQueue::KernelEqueue eq, in
 }
 
 void RenderContext::TriggerInterrupt(int event_id, uint32_t context_id) {
-	std::vector<InterruptEqRegistration> registrations;
+	// Reused: EOP interrupts arrive hundreds of times per frame.
+	thread_local std::vector<InterruptEqRegistration> registrations;
+	registrations.clear();
 	{
 		Common::LockGuard lock(m_interrupt_mutex);
 		for (const auto& registration: m_interrupt_eqs) {
