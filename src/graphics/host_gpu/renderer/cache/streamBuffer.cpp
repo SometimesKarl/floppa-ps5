@@ -125,6 +125,20 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 			            vk::to_string(result).c_str());
 		}
 	}
+	if (result != vk::Result::eSuccess &&
+	    (allocation_info.flags & VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT) != 0) {
+		// With video memory full the driver refused even a small dedicated allocation in
+		// system memory (ASTRO BOT's Sky Garden load), while VMA's existing blocks still had
+		// ~1 GB free: place the buffer in one of those instead.
+		allocation_info.flags &= ~VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+		allocation_info.usage = AllocationUsage(usage);
+		result                = create();
+		static std::atomic<uint32_t> shared_count {0};
+		if (shared_count.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Buffer: %" PRIu64 " bytes sub-allocated instead of dedicated (%s)\n",
+			            size, vk::to_string(result).c_str());
+		}
+	}
 	if (result != vk::Result::eSuccess) {
 		std::printf("Buffer: allocation of %" PRIu64 " bytes (usage %d, flags 0x%x) failed: %s\n",
 		            size, static_cast<int>(usage), static_cast<uint32_t>(allocation_info.flags),

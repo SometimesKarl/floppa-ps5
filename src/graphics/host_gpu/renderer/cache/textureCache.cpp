@@ -2181,12 +2181,14 @@ void TextureCache::UnmapMemory(uint64_t address, uint64_t size) {
 
 void TextureCache::EmergencyCollect(uint64_t tick) {
 	const auto idle_tick  = m_tick_history.TickSecondsAgo(5.0);
-	const auto stale_tick = m_tick_history.TickSecondsAgo(30.0);
+	const auto stale_tick = m_tick_history.TickSecondsAgo(10.0);
 	if (idle_tick == 0) {
 		return;
 	}
+	// Free well below the budget: a level load allocates gigabytes within seconds, and with
+	// video memory full the driver refuses allocations even in system memory.
 	const auto budget = m_graphics.GetTotalMemoryBudget();
-	const auto target = budget - budget / 16;
+	const auto target = budget - std::min<uint64_t>(budget / 4, 1024ull * 1024 * 1024);
 	std::vector<ImageId> candidates;
 	std::vector<size_t>  kept;
 	size_t               scanned = 0;
@@ -2196,7 +2198,7 @@ void TextureCache::EmergencyCollect(uint64_t tick) {
 			const bool tiled_gpu = owner->IsGpuModified() && owner->info.IsTiled() &&
 			                       SafeToDownload(*owner);
 			// A GPU-written tiled image has no download path: dropping it loses what the GPU
-			// wrote, so only images nothing has used for 30 s (a previous level's targets) go.
+			// wrote, so only images nothing has used for 10 s (a previous level's targets) go.
 			if (owner->depth_id ||
 			    (tiled_gpu && (stale_tick == 0 || m_lru_cache.TickOf(owner->lru_id) > stale_tick))) {
 				kept.push_back(owner->lru_id);
