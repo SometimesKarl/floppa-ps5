@@ -40,6 +40,8 @@ public:
 	[[nodiscard]] int GetFrameNum() const;
 
 	[[nodiscard]] static bool IsGpuThread() noexcept;
+	// QPC at which the guest submitted the work the calling GPU thread is processing (0 elsewhere).
+	[[nodiscard]] static uint64_t CurrentSubmissionQpc() noexcept;
 
 private:
 	static constexpr uint32_t ComputePipeCount     = 7;
@@ -63,6 +65,7 @@ private:
 		bool                      constant_complete = false;
 		bool                      blocked           = false;
 		uint64_t                  flip_request_id   = 0;
+		uint64_t                  enqueue_qpc       = 0;
 	};
 
 	void              Enqueue(Submission submission);

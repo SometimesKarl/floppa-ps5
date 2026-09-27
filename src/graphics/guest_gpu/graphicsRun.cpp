@@ -40,6 +40,7 @@ static thread_local CommandProcessor* g_current_processor = nullptr;
 static thread_local Pm4Execution*     g_current_execution = nullptr;
 static thread_local bool              g_gpu_mutex_owned   = false;
 static thread_local bool              g_gpu_thread        = false;
+static thread_local uint64_t          g_submission_qpc    = 0;
 static thread_local GuestGpu*         g_gpu_state         = nullptr;
 
 struct DrawIndirectArgs {
@@ -481,6 +482,7 @@ void GuestGpu::Enqueue(Submission submission) {
 	EXIT_IF(submission.queue_id >= QueueCount);
 	Common::LockGuard lock(m_queue_mutex);
 	EXIT_IF(!m_accepting);
+	submission.enqueue_qpc = Common::Timer::QueryPerformanceCounter();
 	m_queues[submission.queue_id].push_back(std::move(submission));
 	m_submission_count++;
 	m_work_available.Signal();
@@ -594,6 +596,7 @@ void GuestGpu::ThreadRun(void* data) {
 
 bool GuestGpu::Process(Submission& submission) {
 	const bool first_slice = !submission.started;
+	g_submission_qpc       = submission.enqueue_qpc;
 	auto& cp = GetProcessor(submission.queue_id);
 
 	if (first_slice && submission.reset_processor) {
@@ -1600,6 +1603,10 @@ void CommandProcessor::SynchronizeGpu() {
 
 bool GuestGpu::IsGpuThread() noexcept {
 	return g_gpu_thread;
+}
+
+uint64_t GuestGpu::CurrentSubmissionQpc() noexcept {
+	return g_gpu_thread ? g_submission_qpc : 0;
 }
 
 } // namespace Libs::Graphics

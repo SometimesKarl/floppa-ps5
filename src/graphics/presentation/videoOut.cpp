@@ -226,6 +226,9 @@ private:
 		uint64_t                    submit_ptc;
 		uint64_t                    submit_qpc;
 		uint64_t                    ready_qpc;
+		// When the guest submitted the command buffer holding the flip (GPU flips), so the frame
+		// log can show the whole guest-submit-to-screen latency.
+		uint64_t                    guest_qpc;
 		FlipRequestSource           source;
 		RequestState                state;
 		Graphics::Presenter::Frame* frame;
@@ -818,14 +821,15 @@ public:
 	[[nodiscard]] bool Enabled() const { return m_file != nullptr; }
 
 	void Write(int kind, uint64_t id, int64_t flip_arg, int index, uint64_t submit_qpc,
-	           uint64_t ready_qpc, uint64_t begin_qpc, uint64_t end_qpc) {
+	           uint64_t ready_qpc, uint64_t begin_qpc, uint64_t end_qpc, uint64_t guest_qpc = 0) {
 		std::lock_guard lock(m_mutex);
-		std::fprintf(m_file, "%d,%llu,%lld,%d,%llu,%llu,%llu,%llu\n", kind,
+		std::fprintf(m_file, "%d,%llu,%lld,%d,%llu,%llu,%llu,%llu,%llu\n", kind,
 		             static_cast<unsigned long long>(id), static_cast<long long>(flip_arg), index,
 		             static_cast<unsigned long long>(submit_qpc),
 		             static_cast<unsigned long long>(ready_qpc),
 		             static_cast<unsigned long long>(begin_qpc),
-		             static_cast<unsigned long long>(end_qpc));
+		             static_cast<unsigned long long>(end_qpc),
+		             static_cast<unsigned long long>(guest_qpc));
 		// Flushing about twice a second bounds what a crash or a forced exit loses.
 		if (++m_lines % 32 == 0) {
 			std::fflush(m_file);
@@ -847,7 +851,7 @@ private:
 		}
 		std::fprintf(m_file,
 		             "# qpc_frequency=%llu\nkind,id,flip_arg,index,submit_qpc,ready_qpc,"
-		             "present_begin_qpc,present_end_qpc\n",
+		             "present_begin_qpc,present_end_qpc,guest_submit_qpc\n",
 		             static_cast<unsigned long long>(Common::Timer::QueryPerformanceFrequency()));
 		std::fflush(m_file);
 	}
@@ -969,6 +973,8 @@ bool FlipQueue::Reserve(VideoOutConfig& cfg, int index, int64_t flip_arg, FlipRe
 	r.flip_arg   = flip_arg;
 	r.submit_ptc = LibKernel::KernelGetProcessTimeCounter();
 	r.submit_qpc = Common::Timer::QueryPerformanceCounter();
+	r.guest_qpc  = source == FlipRequestSource::GpuEop ? Graphics::GuestGpu::CurrentSubmissionQpc()
+	                                                   : r.submit_qpc;
 	r.source     = source;
 	r.state      = RequestState::Reserved;
 
@@ -1251,7 +1257,8 @@ bool FlipQueue::Flip(uint32_t micros) {
 	m_presenter.Present(*r.frame);
 	if (auto& log = FrameLog::Instance(); log.Enabled()) {
 		log.Write(r.source == FlipRequestSource::GpuEop ? 0 : 1, r.id, r.flip_arg, r.index,
-		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter());
+		          r.submit_qpc, r.ready_qpc, present_begin, Common::Timer::QueryPerformanceCounter(),
+		          r.guest_qpc);
 	}
 
 	Graphics::RenderDocOnGuestFlip(m_presenter.Renderer());
