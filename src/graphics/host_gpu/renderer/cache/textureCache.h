@@ -146,7 +146,7 @@ private:
 	[[nodiscard]] ImageId       ExpandImage(const ImageInfo& info, ImageId source);
 	[[nodiscard]] ImageId       RecreateWithUnrestrictedViews(ImageId source);
 	void                        RefreshImage(ImageId id);
-	void                        MaterializeDccClear(ImageId id, const ImageDesc& desc,
+	void                        MaterializeColorClear(ImageId id, const ImageDesc& desc,
 	                                                uint32_t metadata_base_layer);
 	[[nodiscard]] bool          MaterializeDccClearOnGpu(ImageId id, const ImageDesc& desc,
 	                                                     uint32_t first, uint32_t image_first,
