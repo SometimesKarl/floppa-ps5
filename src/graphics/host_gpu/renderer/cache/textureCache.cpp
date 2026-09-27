@@ -1219,6 +1219,11 @@ void TextureCache::MaterializeColorClear(ImageId id, const ImageDesc& desc,
 		m_buffer_cache.ReadMemory(range.address, range.size, false);
 	}
 	const auto slice_size = range.size / layers;
+	// Every bind of a target re-checks its metadata. A slice that starts with a clear code but is
+	// not uniform (partially cleared, or zero-filled) was copied and compared in full on every
+	// draw (~4 ms a frame in ASTRO BOT); it is re-read only after a GPU write to the range or a
+	// change in its sample bytes.
+	const auto generation = m_buffer_cache.WatchGpuWrites(range.address, range.size);
 	for (uint32_t slice = 0; slice < count; slice++) {
 		const auto address = range.address + slice_size * (first + slice);
 		uint8_t code = 0;
@@ -1229,12 +1234,33 @@ void TextureCache::MaterializeColorClear(ImageId id, const ImageDesc& desc,
 		if (!DecodeColorClear(desc, code, clear.color)) {
 			continue;
 		}
-		std::vector<uint8_t> bytes(slice_size);
+		uint8_t middle = 0;
+		uint8_t last   = 0;
+		if (!LibKernel::Memory::TryReadBacking(address + slice_size / 2, &middle, 1) ||
+		    !LibKernel::Memory::TryReadBacking(address + slice_size - 1, &last, 1)) {
+			EXIT("TextureCache: failed to read color metadata backing\n");
+		}
+		{
+			std::scoped_lock lock {m_lock};
+			if (const auto it = m_color_clear_checks.find(address);
+			    it != m_color_clear_checks.end() && it->second.generation == generation &&
+			    it->second.first == code && it->second.middle == middle && it->second.last == last) {
+				continue;
+			}
+		}
+		thread_local std::vector<uint8_t> bytes;
+		bytes.resize(slice_size);
 		if (!LibKernel::Memory::TryReadBacking(address, bytes.data(), bytes.size())) {
 			EXIT("TextureCache: failed to read color metadata slice\n");
 		}
 		if (!std::all_of(bytes.begin(), bytes.end(), [code](uint8_t byte) { return byte == code; })) {
+			std::scoped_lock lock {m_lock};
+			m_color_clear_checks[address] = {generation, code, middle, last};
 			continue;
+		}
+		{
+			std::scoped_lock lock {m_lock};
+			m_color_clear_checks.erase(address);
 		}
 		{
 			std::scoped_lock lock {m_lock};

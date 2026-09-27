@@ -202,6 +202,15 @@ private:
 		uint8_t  tested_codes = 0;
 	};
 	std::unordered_map<uint64_t, DccCheck>            m_dcc_checks;
+	// Color metadata slices whose first byte decodes as a clear code but whose slice was not
+	// uniform, with the GPU-write generation and sample bytes they were read at.
+	struct ColorClearCheck {
+		uint64_t generation = 0;
+		uint8_t  first      = 0;
+		uint8_t  middle     = 0;
+		uint8_t  last       = 0;
+	};
+	std::unordered_map<uint64_t, ColorClearCheck>     m_color_clear_checks;
 	uint64_t                                          m_total_used_memory  = 0;
 	uint64_t m_gc_freed = 0;
 	uint64_t m_gc_kept  = 0;
