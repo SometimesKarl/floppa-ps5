@@ -520,6 +520,20 @@ struct UniformFillPlan {
 
 // Resource analysis retained by the shader cache. It owns immutable descriptor/SRT,
 // condition and fill values without translated blocks, plus reusable evaluation scratch.
+// One decoded SRT evaluation node of an extracted plan, indexed by the instruction's
+// evaluation index. Operands are resolved once: immediates unpacked, instructions replaced by
+// their evaluation index (see SrtWalker::EvaluateNode).
+struct SrtNode {
+	const Inst* inst     = nullptr;
+	uint64_t    args[4]  = {};
+	uint32_t    aux      = 0;
+	ValueOpcode op       = ValueOpcode::Void;
+	uint8_t     kind     = 0; // 0: not decoded, 1: evaluated from the node, 2: by the interpreter
+	uint8_t     argc     = 0; // decoded operands (at most 4)
+	uint8_t     imm_mask = 0; // operand is an immediate held in args[]
+	uint8_t     bad_mask = 0; // operand the walker cannot evaluate
+};
+
 struct ResourcePlan {
 	struct EvaluationContext {
 		struct Entry {
@@ -564,6 +578,10 @@ struct ResourcePlan {
 	mutable std::vector<uint32_t>           pending_blocks;
 	mutable std::vector<uint32_t>           material_keys;
 	mutable std::vector<std::pair<uint64_t, uint64_t>> specialization_reads;
+	// Set for plans extracted for draw-time evaluation (their IR no longer changes): the walker
+	// then evaluates through srt_nodes instead of re-decoding IR values at every node.
+	bool                                               srt_nodes_enabled = false;
+	mutable std::vector<SrtNode>                       srt_nodes;
 };
 
 struct Program: ResourcePlan {

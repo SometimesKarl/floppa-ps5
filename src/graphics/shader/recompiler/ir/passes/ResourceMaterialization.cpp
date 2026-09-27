@@ -10,6 +10,7 @@
 #include <array>
 #include <bit>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fmt/format.h>
 #include <functional>
@@ -859,6 +860,7 @@ ResourcePlan ExtractResourcePlan(const Program& program) {
 	plan.srt_plan_complete          = program.srt_plan_complete;
 	plan.resource_tracking_complete = program.resource_tracking_complete;
 	plan.has_address_writes         = program.has_address_writes;
+	plan.srt_nodes_enabled          = true;
 
 	std::unordered_map<const Inst*, Inst*> cloned;
 	std::function<Value(Value)>            Clone = [&](Value value) -> Value {
@@ -931,9 +933,62 @@ ResourcePlan ExtractResourcePlan(const Program& program) {
 	return plan;
 }
 
+static bool MaterializeResourcesImpl(const ResourcePlan& program, const SrtRuntime& runtime,
+                                     ResourceSnapshot&       snapshot,
+                                     ResourceSpecialization& specialization);
+
 bool MaterializeResources(const ResourcePlan& program, const SrtRuntime& runtime,
                           ResourceSnapshot& snapshot, ResourceSpecialization& specialization) {
 	KYTY_PROFILER_FUNCTION();
+	// KYTY_SRT_VERIFY=1: evaluate with the IR interpreter as well and report any difference
+	// from the decoded-node evaluator (SrtWalker::EvaluateNode).
+	static const bool verify = std::getenv("KYTY_SRT_VERIFY") != nullptr;
+	if (!verify || !program.srt_nodes_enabled || !SrtFastEvaluation()) {
+		return MaterializeResourcesImpl(program, runtime, snapshot, specialization);
+	}
+	ResourceSnapshot       reference_snapshot = snapshot;
+	ResourceSpecialization reference_spec     = specialization;
+	SetSrtFastEvaluation(false);
+	const bool reference_ok =
+	    MaterializeResourcesImpl(program, runtime, reference_snapshot, reference_spec);
+	SetSrtFastEvaluation(true);
+	const bool ok = MaterializeResourcesImpl(program, runtime, snapshot, specialization);
+	static uint64_t checks     = 0;
+	static uint64_t mismatches = 0;
+	checks++;
+	const bool same = ok == reference_ok &&
+	                  (!ok || (snapshot.buffers == reference_snapshot.buffers &&
+	                           snapshot.images == reference_snapshot.images &&
+	                           snapshot.samplers == reference_snapshot.samplers &&
+	                           snapshot.flattened_srt == reference_snapshot.flattened_srt &&
+	                           snapshot.uniform_fill == reference_snapshot.uniform_fill &&
+	                           specialization == reference_spec));
+	if (!same) {
+		mismatches++;
+		if (mismatches <= 16) {
+			std::printf("SRT verify: mismatch hash=0x%016llx ok=%d/%d buffers=%d images=%d "
+			            "samplers=%d flat=%d fill=%d spec=%d\n",
+			            static_cast<unsigned long long>(program.shader_hash), ok, reference_ok,
+			            snapshot.buffers == reference_snapshot.buffers,
+			            snapshot.images == reference_snapshot.images,
+			            snapshot.samplers == reference_snapshot.samplers,
+			            snapshot.flattened_srt == reference_snapshot.flattened_srt,
+			            snapshot.uniform_fill == reference_snapshot.uniform_fill,
+			            specialization == reference_spec);
+		}
+	}
+	if ((checks & 0xffffu) == 0) {
+		std::printf("SRT verify: %llu materializations, %llu mismatches\n",
+		            static_cast<unsigned long long>(checks),
+		            static_cast<unsigned long long>(mismatches));
+		std::fflush(stdout);
+	}
+	return ok;
+}
+
+static bool MaterializeResourcesImpl(const ResourcePlan& program, const SrtRuntime& runtime,
+                                     ResourceSnapshot&       snapshot,
+                                     ResourceSpecialization& specialization) {
 	if (!program.resource_tracking_complete ||
 	    (program.requires_specialization_memory && runtime.read_specialization_memory == nullptr)) {
 		return false;

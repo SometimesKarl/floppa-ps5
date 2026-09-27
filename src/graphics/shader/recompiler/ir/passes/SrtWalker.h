@@ -35,6 +35,11 @@ using SrtUserDataObserver = void (*)(void* context, uint32_t index, uint32_t val
 void SetSrtReadObserver(SrtReadObserver observer, SrtUserDataObserver user_data_observer,
                         void* context);
 
+// Selects the decoded-node evaluator (default) or the IR interpreter for plans that allow it.
+// KYTY_SRT_VERIFY compares the two on every materialization.
+void SetSrtFastEvaluation(bool enabled);
+[[nodiscard]] bool SrtFastEvaluation();
+
 // Collects reachable ReadConst values. Immediate offsets receive compact flat-buffer slots;
 // dynamic offsets remain explicit and are never assigned a fake slot.
 void BuildSrtPlan(Program& program);
@@ -67,7 +72,13 @@ private:
 	bool EvaluatePhi(const Inst& inst, uint64_t& result);
 	bool EvaluateExtract(const Inst& inst, uint64_t& result);
 	bool EvaluateRawRead(const Inst& inst, uint64_t& result);
+	bool ReadRaw(const MemoryInfo& mem, bool constant_buffer, uint64_t low, uint64_t high,
+	             uint64_t offset, uint64_t records, uint64_t& result);
 	bool EvaluateInst(const Inst& inst, uint64_t& result);
+	bool EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result);
+	bool EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result);
+	void DecodeNode(uint32_t index, const Inst& inst);
+	bool NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result);
 
 	const ResourcePlan&              m_program;
 	SrtRuntime                      m_runtime;
@@ -75,6 +86,7 @@ private:
 	SrtWalker*                      m_clean_evaluator = nullptr;
 	Value                           m_active_mask;
 	ResourcePlan::EvaluationContext& m_context;
+	bool                             m_fast = false;
 };
 
 } // namespace Libs::Graphics::ShaderRecompiler::IR

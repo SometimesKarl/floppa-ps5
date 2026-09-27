@@ -15,10 +15,19 @@ namespace Libs::Graphics::ShaderRecompiler::IR {
 
 namespace {
 std::atomic<SrtDirectReader> g_direct_reader {nullptr};
+std::atomic<bool>            g_fast_evaluation {true};
 thread_local SrtReadObserver     t_read_observer      = nullptr;
 thread_local SrtUserDataObserver t_user_data_observer = nullptr;
 thread_local void*               t_read_context       = nullptr;
 } // namespace
+
+void SetSrtFastEvaluation(bool enabled) {
+	g_fast_evaluation.store(enabled, std::memory_order_relaxed);
+}
+
+bool SrtFastEvaluation() {
+	return g_fast_evaluation.load(std::memory_order_relaxed);
+}
 
 void SetSrtDirectReader(SrtDirectReader reader) {
 	g_direct_reader.store(reader, std::memory_order_release);
@@ -484,7 +493,8 @@ SrtWalker::SrtWalker(const ResourcePlan& program, const SrtRuntime& runtime,
                      Value active_mask)
     : m_program(program), m_runtime(runtime), m_clean_flat_slots(clean_flat_slots),
       m_clean_evaluator(clean_evaluator), m_active_mask(active_mask.Resolve()),
-      m_context(AcquireContext(program)) {}
+      m_context(AcquireContext(program)),
+      m_fast(program.srt_nodes_enabled && m_active_mask.IsEmpty() && SrtFastEvaluation()) {}
 
 SrtWalker::~SrtWalker() { --m_program.evaluation_depth; }
 
@@ -531,7 +541,10 @@ bool SrtWalker::EvaluateWide(Value value, uint64_t& result) {
 	    inst->NumArgs() == 3 && inst->Arg(0).Resolve() == m_active_mask) {
 		return EvaluateWide(inst->Arg(1), result);
 	}
-	const auto index = inst->EvaluationIndex(m_program.evaluation_value_count);
+	return EvaluateIndex(inst->EvaluationIndex(m_program.evaluation_value_count), *inst, result);
+}
+
+bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result) {
 	if (index >= m_context.values.size()) {
 		m_context.values.resize(m_program.evaluation_value_count);
 	}
@@ -545,7 +558,7 @@ bool SrtWalker::EvaluateWide(Value value, uint64_t& result) {
 	}
 	m_context.values[index].generation = m_context.generation | 1u;
 	uint64_t out = 0;
-	const bool evaluated = EvaluateInst(*inst, out);
+	const bool evaluated = m_fast ? EvaluateNode(index, inst, out) : EvaluateInst(inst, out);
 	// Recursive evaluation may grow the dense memo vector.
 	auto& memo = m_context.values[index];
 	if (!evaluated) {
@@ -622,15 +635,22 @@ bool SrtWalker::EvaluateRawRead(const Inst& inst, uint64_t& result) {
 	if (!Arg(*handle, 0, low) || !Arg(*handle, 1, high) || !Arg(inst, 1, offset)) {
 		return false;
 	}
+	const bool constant_buffer = inst.GetOpcode() == ValueOpcode::ReadConstBuffer;
+	uint64_t   records         = 0;
+	uint64_t   word3           = 0;
+	if (constant_buffer &&
+	    (handle->NumArgs() != 4u || !Arg(*handle, 2, records) || !Arg(*handle, 3, word3))) {
+		return false;
+	}
+	return ReadRaw(mem, constant_buffer, low, high, offset, records, result);
+}
+
+bool SrtWalker::ReadRaw(const MemoryInfo& mem, bool constant_buffer, uint64_t low, uint64_t high,
+                        uint64_t offset, uint64_t records, uint64_t& result) {
 	const auto base      = ((high << 32u) | static_cast<uint32_t>(low)) & AddressMask;
 	const auto immediate = static_cast<int64_t>(static_cast<int32_t>(mem.offset));
 	uint64_t   address   = 0;
-	if (inst.GetOpcode() == ValueOpcode::ReadConstBuffer) {
-		uint64_t records = 0;
-		uint64_t word3   = 0;
-		if (handle->NumArgs() != 4u || !Arg(*handle, 2, records) || !Arg(*handle, 3, word3)) {
-			return false;
-		}
+	if (constant_buffer) {
 		if (immediate < 0) {
 			return false;
 		}
@@ -670,6 +690,480 @@ bool SrtWalker::EvaluateRawRead(const Inst& inst, uint64_t& result) {
 	}
 	result = word;
 	return true;
+}
+
+namespace {
+
+bool IsNodeArithmetic(ValueOpcode op) {
+	switch (op) {
+		case ValueOpcode::BitCastU32F32:
+		case ValueOpcode::BitCastF32U32:
+		case ValueOpcode::CompositeConstructU64:
+		case ValueOpcode::IAdd32:
+		case ValueOpcode::IAdd64:
+		case ValueOpcode::ISub32:
+		case ValueOpcode::ISub64:
+		case ValueOpcode::IMul32:
+		case ValueOpcode::IMul64:
+		case ValueOpcode::UMin32:
+		case ValueOpcode::ConvertF32U32:
+		case ValueOpcode::ConvertU32F32:
+		case ValueOpcode::FPMul32:
+		case ValueOpcode::FPTrunc32:
+		case ValueOpcode::FPIsNan32:
+		case ValueOpcode::FPOrdLessThanEqual32:
+		case ValueOpcode::FPOrdGreaterThanEqual32:
+		case ValueOpcode::BitwiseAnd32:
+		case ValueOpcode::BitwiseAnd64:
+		case ValueOpcode::BitwiseOr32:
+		case ValueOpcode::BitwiseXor32:
+		case ValueOpcode::BitwiseNot32:
+		case ValueOpcode::ShiftLeftLogical32:
+		case ValueOpcode::ShiftLeftLogical64:
+		case ValueOpcode::ShiftRightLogical32:
+		case ValueOpcode::ShiftRightLogical64:
+		case ValueOpcode::ShiftRightArithmetic32:
+		case ValueOpcode::ShiftRightArithmetic64:
+		case ValueOpcode::BitFieldUExtract:
+		case ValueOpcode::BitFieldSExtract:
+		case ValueOpcode::BitFieldInsert:
+		case ValueOpcode::SelectU32:
+		case ValueOpcode::SelectU1:
+		case ValueOpcode::SelectF32:
+		case ValueOpcode::IEqual32:
+		case ValueOpcode::INotEqual32:
+		case ValueOpcode::ULessThan32:
+		case ValueOpcode::UGreaterThan32:
+		case ValueOpcode::SGreaterThanEqual32:
+		case ValueOpcode::LogicalAnd:
+		case ValueOpcode::LogicalOr:
+		case ValueOpcode::LogicalXor:
+		case ValueOpcode::LogicalNot:
+		case ValueOpcode::UndefU1:
+		case ValueOpcode::UndefU8:
+		case ValueOpcode::UndefU16:
+		case ValueOpcode::UndefU32:
+		case ValueOpcode::UndefU64: return true;
+		default: return false;
+	}
+}
+
+} // namespace
+
+void SrtWalker::DecodeNode(uint32_t index, const Inst& inst) {
+	auto& nodes = m_program.srt_nodes;
+	if (nodes.size() < m_program.evaluation_value_count) {
+		nodes.resize(m_program.evaluation_value_count);
+	}
+	SrtNode node;
+	node.inst = &inst;
+	node.op   = inst.GetOpcode();
+	node.kind = 2;
+	const auto decode = [&](Value value, uint32_t operand) {
+		const auto bit = static_cast<uint8_t>(1u << operand);
+		node.imm_mask &= static_cast<uint8_t>(~bit);
+		node.bad_mask &= static_cast<uint8_t>(~bit);
+		value = value.Resolve();
+		if (value.IsImmediate()) {
+			switch (value.GetType()) {
+				case Type::U1: node.args[operand] = value.U1(); break;
+				case Type::U8: node.args[operand] = value.U8(); break;
+				case Type::U16: node.args[operand] = value.U16(); break;
+				case Type::U32: node.args[operand] = value.U32(); break;
+				case Type::U64: node.args[operand] = value.U64(); break;
+				case Type::F32:
+					node.args[operand] = std::bit_cast<uint32_t>(value.F32Value());
+					break;
+				default: node.bad_mask |= bit; return;
+			}
+			node.imm_mask |= bit;
+			return;
+		}
+		const auto* child = value.TryInstruction();
+		if (child == nullptr) {
+			node.bad_mask |= bit;
+			return;
+		}
+		const auto child_index = child->EvaluationIndex(m_program.evaluation_value_count);
+		if (nodes.size() <= child_index) {
+			nodes.resize(m_program.evaluation_value_count);
+		}
+		if (nodes[child_index].inst == nullptr) {
+			nodes[child_index].inst = child;
+		}
+		node.args[operand] = child_index;
+	};
+	const auto count = inst.NumArgs();
+	node.argc        = static_cast<uint8_t>(std::min<size_t>(count, 4));
+	// Every node records its operands: extracts and raw reads use their source's operands.
+	for (uint32_t operand = 0; operand < node.argc; operand++) {
+		decode(inst.Arg(operand), operand);
+	}
+	const bool first_is_inst = node.argc > 0 && (node.imm_mask & 1u) == 0 && (node.bad_mask & 1u) == 0;
+	switch (node.op) {
+		case ValueOpcode::GetUserData: {
+			const auto reg = RegIndex(inst.Arg(0).ScalarRegister());
+			if (reg >= m_program.user_data_base) {
+				node.aux  = reg - m_program.user_data_base;
+				node.kind = 1;
+			}
+			break;
+		}
+		case ValueOpcode::GetShaderBase: node.kind = 1; break;
+		case ValueOpcode::ReadConst: {
+			const auto slot = count == 2 ? inst.Arg(1).Resolve() : Value {};
+			if (slot.IsImmediate() && slot.GetType() == Type::U32 &&
+			    slot.U32() < m_program.srt_reads.size()) {
+				node.aux = slot.U32();
+				// Operand 0 now stands for the flat-buffer read the slot names.
+				decode(m_program.srt_reads[slot.U32()].value, 0);
+				node.kind = 1;
+			}
+			break;
+		}
+		case ValueOpcode::LoadAddressU32:
+		case ValueOpcode::ReadConstBuffer:
+			if (count == 2 && first_is_inst && IsRawRead(m_program, inst)) {
+				node.aux  = inst.Flags<MemoryFlags>().index;
+				node.kind = 1;
+			}
+			break;
+		case ValueOpcode::CompositeExtractU64:
+		case ValueOpcode::CompositeExtractU32x2: {
+			const auto component = count == 2 ? inst.Arg(1).Resolve() : Value {};
+			if (!first_is_inst || !component.IsImmediate() || component.GetType() != Type::U32 ||
+			    component.U32() >= 2u) {
+				break;
+			}
+			node.aux = component.U32();
+			if (node.op == ValueOpcode::CompositeExtractU64) {
+				node.kind = 1;
+				break;
+			}
+			const auto source_op = inst.Arg(0).ResolveInstruction()->GetOpcode();
+			if (source_op == ValueOpcode::CompositeConstructU32x2 ||
+			    source_op == ValueOpcode::IAddCarry32) {
+				node.kind = 1;
+			}
+			break;
+		}
+		default:
+			if (count <= 4 && IsNodeArithmetic(node.op)) {
+				node.kind = 1;
+			}
+			break;
+	}
+	nodes[index] = node;
+}
+
+bool SrtWalker::NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result) {
+	if (operand >= node.argc) {
+		return false;
+	}
+	const auto bit = static_cast<uint8_t>(1u << operand);
+	if ((node.bad_mask & bit) != 0) {
+		return false;
+	}
+	if ((node.imm_mask & bit) != 0) {
+		result = node.args[operand];
+		return true;
+	}
+	const auto  index = static_cast<uint32_t>(node.args[operand]);
+	const auto* inst  = m_program.srt_nodes[index].inst;
+	return inst != nullptr && EvaluateIndex(index, *inst, result);
+}
+
+bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result) {
+	auto& nodes = m_program.srt_nodes;
+	if (index >= nodes.size() || nodes[index].kind == 0) {
+		DecodeNode(index, inst);
+	}
+	// A copy: evaluating operands can decode more nodes and grow the table.
+	const SrtNode node = nodes[index];
+	if (node.kind != 1) {
+		return EvaluateInst(inst, result);
+	}
+	uint64_t   a       = 0;
+	uint64_t   b       = 0;
+	uint64_t   c       = 0;
+	const auto arg     = [&](uint32_t operand, uint64_t& out) { return NodeArg(node, operand, out); };
+	const auto binary  = [&]() { return arg(0, a) && arg(1, b); };
+	const auto ternary = [&]() { return arg(0, a) && arg(1, b) && arg(2, c); };
+	const auto source  = [&](uint32_t operand) {
+		const auto source_index = static_cast<uint32_t>(node.args[operand]);
+		if (m_program.srt_nodes[source_index].kind == 0) {
+			DecodeNode(source_index, *m_program.srt_nodes[source_index].inst);
+		}
+		return m_program.srt_nodes[source_index];
+	};
+	switch (node.op) {
+		case ValueOpcode::GetUserData:
+			if (node.aux >= m_runtime.user_data.size()) {
+				return false;
+			}
+			result = m_runtime.user_data[node.aux];
+			if (t_user_data_observer != nullptr) {
+				t_user_data_observer(t_read_context, node.aux, static_cast<uint32_t>(result));
+			}
+			return true;
+		case ValueOpcode::GetShaderBase: result = m_runtime.shader_base; return true;
+		case ValueOpcode::ReadConst: {
+			auto* evaluator = this;
+			if (node.aux < m_clean_flat_slots.size() && m_clean_flat_slots[node.aux] != 0u &&
+			    m_clean_evaluator != nullptr) {
+				evaluator = m_clean_evaluator;
+			}
+			return evaluator->NodeArg(node, 0, result);
+		}
+		case ValueOpcode::LoadAddressU32:
+		case ValueOpcode::ReadConstBuffer: {
+			const auto handle          = source(0);
+			const bool constant_buffer = node.op == ValueOpcode::ReadConstBuffer;
+			uint64_t   records         = 0;
+			uint64_t   word3           = 0;
+			if (handle.argc < 2 || !NodeArg(handle, 0, a) || !NodeArg(handle, 1, b) ||
+			    !arg(1, c)) {
+				return false;
+			}
+			if (constant_buffer &&
+			    (handle.inst->NumArgs() != 4u || !NodeArg(handle, 2, records) ||
+			     !NodeArg(handle, 3, word3))) {
+				return false;
+			}
+			return ReadRaw(m_program.memory_info[node.aux], constant_buffer, a, b, c, records,
+			               result);
+		}
+		case ValueOpcode::CompositeExtractU64:
+			if (!arg(0, a)) {
+				return false;
+			}
+			result = static_cast<uint32_t>(a >> (node.aux * 32u));
+			return true;
+		case ValueOpcode::CompositeExtractU32x2: {
+			const auto pair = source(0);
+			if (pair.op == ValueOpcode::CompositeConstructU32x2) {
+				return NodeArg(pair, node.aux, result);
+			}
+			if (!NodeArg(pair, 0, a) || !NodeArg(pair, 1, b)) {
+				return false;
+			}
+			const auto sum =
+			    static_cast<uint64_t>(static_cast<uint32_t>(a)) + static_cast<uint32_t>(b);
+			result = node.aux == 0u ? static_cast<uint32_t>(sum) : static_cast<uint32_t>(sum >> 32u);
+			return true;
+		}
+		case ValueOpcode::BitCastU32F32:
+		case ValueOpcode::BitCastF32U32: return arg(0, result);
+		case ValueOpcode::CompositeConstructU64:
+			if (!binary()) {
+				return false;
+			}
+			result = static_cast<uint32_t>(a) |
+			         (static_cast<uint64_t>(static_cast<uint32_t>(b)) << 32u);
+			return true;
+		case ValueOpcode::IAdd32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a + b);
+			return true;
+		case ValueOpcode::IAdd64:
+			if (!binary()) return false;
+			result = a + b;
+			return true;
+		case ValueOpcode::ISub32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a - b);
+			return true;
+		case ValueOpcode::ISub64:
+			if (!binary()) return false;
+			result = a - b;
+			return true;
+		case ValueOpcode::IMul32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a * b);
+			return true;
+		case ValueOpcode::IMul64:
+			if (!binary()) return false;
+			result = a * b;
+			return true;
+		case ValueOpcode::UMin32:
+			if (!binary()) return false;
+			result = std::min(static_cast<uint32_t>(a), static_cast<uint32_t>(b));
+			return true;
+		case ValueOpcode::ConvertF32U32:
+			if (!arg(0, a)) return false;
+			result = std::bit_cast<uint32_t>(static_cast<float>(static_cast<uint32_t>(a)));
+			return true;
+		case ValueOpcode::ConvertU32F32: {
+			if (!arg(0, a)) return false;
+			const auto value = Float32(a);
+			if (!std::isfinite(value) || value < 0.0f || static_cast<double>(value) > UINT32_MAX) {
+				return false;
+			}
+			result = static_cast<uint32_t>(value);
+			return true;
+		}
+		case ValueOpcode::FPMul32:
+			if (!binary()) return false;
+			result = std::bit_cast<uint32_t>(Float32(a) * Float32(b));
+			return true;
+		case ValueOpcode::FPTrunc32:
+			if (!arg(0, a)) return false;
+			result = std::bit_cast<uint32_t>(std::trunc(Float32(a)));
+			return true;
+		case ValueOpcode::FPIsNan32:
+			if (!arg(0, a)) return false;
+			result = std::isnan(Float32(a));
+			return true;
+		case ValueOpcode::FPOrdLessThanEqual32:
+			if (!binary()) return false;
+			result = Float32(a) <= Float32(b);
+			return true;
+		case ValueOpcode::FPOrdGreaterThanEqual32:
+			if (!binary()) return false;
+			result = Float32(a) >= Float32(b);
+			return true;
+		case ValueOpcode::BitwiseAnd32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a & b);
+			return true;
+		case ValueOpcode::BitwiseAnd64:
+			if (!binary()) return false;
+			result = a & b;
+			return true;
+		case ValueOpcode::BitwiseOr32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a | b);
+			return true;
+		case ValueOpcode::BitwiseXor32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a ^ b);
+			return true;
+		case ValueOpcode::BitwiseNot32:
+			if (!arg(0, a)) return false;
+			result = ~static_cast<uint32_t>(a);
+			return true;
+		case ValueOpcode::ShiftLeftLogical32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) << (b & 31u);
+			return true;
+		case ValueOpcode::ShiftLeftLogical64:
+			if (!binary()) return false;
+			result = a << (b & 63u);
+			return true;
+		case ValueOpcode::ShiftRightLogical32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) >> (b & 31u);
+			return true;
+		case ValueOpcode::ShiftRightLogical64:
+			if (!binary()) return false;
+			result = a >> (b & 63u);
+			return true;
+		case ValueOpcode::ShiftRightArithmetic32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(std::bit_cast<int32_t>(static_cast<uint32_t>(a)) >>
+			                               (b & 31u));
+			return true;
+		case ValueOpcode::ShiftRightArithmetic64:
+			if (!binary()) return false;
+			result = static_cast<uint64_t>(std::bit_cast<int64_t>(a) >> (b & 63u));
+			return true;
+		case ValueOpcode::BitFieldUExtract: {
+			if (!ternary()) return false;
+			const auto offset = static_cast<uint32_t>(b);
+			const auto width  = static_cast<uint32_t>(c);
+			if (offset > 32u || width > 32u - offset) return false;
+			const auto mask = width == 32u  ? UINT32_MAX
+			                  : width == 0u ? 0u
+			                                : (uint32_t {1} << width) - 1u;
+			result = width == 0u ? 0u : (static_cast<uint32_t>(a) >> offset) & mask;
+			return true;
+		}
+		case ValueOpcode::BitFieldSExtract: {
+			if (!ternary()) return false;
+			const auto offset = static_cast<uint32_t>(b);
+			const auto width  = static_cast<uint32_t>(c);
+			if (offset > 32u || width > 32u - offset) return false;
+			if (width == 0u) {
+				result = 0;
+				return true;
+			}
+			const auto mask = width == 32u ? UINT32_MAX : (uint32_t {1} << width) - 1u;
+			auto       bits = (static_cast<uint32_t>(a) >> offset) & mask;
+			if (width < 32u && (bits & (uint32_t {1} << (width - 1u))) != 0u) {
+				bits |= ~mask;
+			}
+			result = bits;
+			return true;
+		}
+		case ValueOpcode::BitFieldInsert: {
+			uint64_t d = 0;
+			if (!ternary() || !arg(3, d)) return false;
+			const auto offset = static_cast<uint32_t>(c);
+			const auto width  = static_cast<uint32_t>(d);
+			if (offset > 32u || width > 32u - offset) return false;
+			if (width == 0u) {
+				result = static_cast<uint32_t>(a);
+				return true;
+			}
+			const auto mask =
+			    width == 32u ? UINT32_MAX : ((uint32_t {1} << width) - 1u) << offset;
+			result = (static_cast<uint32_t>(a) & ~mask) |
+			         ((static_cast<uint32_t>(b) << offset) & mask);
+			return true;
+		}
+		case ValueOpcode::SelectU32:
+		case ValueOpcode::SelectU1:
+		case ValueOpcode::SelectF32: {
+			auto& predicate = m_clean_evaluator != nullptr ? *m_clean_evaluator : *this;
+			if (predicate.NodeArg(node, 0, a)) {
+				return arg(a != 0u ? 1u : 2u, result);
+			}
+			return false;
+		}
+		case ValueOpcode::IEqual32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) == static_cast<uint32_t>(b);
+			return true;
+		case ValueOpcode::INotEqual32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) != static_cast<uint32_t>(b);
+			return true;
+		case ValueOpcode::ULessThan32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) < static_cast<uint32_t>(b);
+			return true;
+		case ValueOpcode::UGreaterThan32:
+			if (!binary()) return false;
+			result = static_cast<uint32_t>(a) > static_cast<uint32_t>(b);
+			return true;
+		case ValueOpcode::SGreaterThanEqual32:
+			if (!binary()) return false;
+			result = std::bit_cast<int32_t>(static_cast<uint32_t>(a)) >=
+			         std::bit_cast<int32_t>(static_cast<uint32_t>(b));
+			return true;
+		case ValueOpcode::LogicalAnd:
+			if (!binary()) return false;
+			result = (a != 0u) && (b != 0u);
+			return true;
+		case ValueOpcode::LogicalOr:
+			if (!binary()) return false;
+			result = (a != 0u) || (b != 0u);
+			return true;
+		case ValueOpcode::LogicalXor:
+			if (!binary()) return false;
+			result = (a != 0u) != (b != 0u);
+			return true;
+		case ValueOpcode::LogicalNot:
+			if (!arg(0, a)) return false;
+			result = a == 0u;
+			return true;
+		case ValueOpcode::UndefU1:
+		case ValueOpcode::UndefU8:
+		case ValueOpcode::UndefU16:
+		case ValueOpcode::UndefU32:
+		case ValueOpcode::UndefU64: return false;
+		default: return EvaluateInst(inst, result);
+	}
 }
 
 bool SrtWalker::EvaluateInst(const Inst& inst, uint64_t& result) {
