@@ -21,6 +21,12 @@ struct SrtRuntime {
 
 enum class RuntimeValueType { Any, Integer };
 
+// Reads guest memory that the walker would otherwise dereference directly (runtime without
+// read_memory). Returns false when the bytes must be read through the guest address instead,
+// for example because the GPU wrote them. Installed once by the pipeline cache.
+using SrtDirectReader = bool (*)(uint64_t address, void* data, uint64_t size);
+void SetSrtDirectReader(SrtDirectReader reader);
+
 // Collects reachable ReadConst values. Immediate offsets receive compact flat-buffer slots;
 // dynamic offsets remain explicit and are never assigned a fake slot.
 void BuildSrtPlan(Program& program);

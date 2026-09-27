@@ -4,6 +4,7 @@
 #include "graphics/shader/recompiler/ir/ShaderIR.h"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -11,6 +12,14 @@
 #include <unordered_set>
 
 namespace Libs::Graphics::ShaderRecompiler::IR {
+
+namespace {
+std::atomic<SrtDirectReader> g_direct_reader {nullptr};
+} // namespace
+
+void SetSrtDirectReader(SrtDirectReader reader) {
+	g_direct_reader.store(reader, std::memory_order_release);
+}
 
 SrtRuntime CleanRuntime(SrtRuntime runtime) {
 	runtime.read_memory = runtime.read_specialization_memory != nullptr
@@ -639,7 +648,12 @@ bool SrtWalker::EvaluateRawRead(const Inst& inst, uint64_t& result) {
 			return false;
 		}
 	} else {
-		std::memcpy(&word, reinterpret_cast<const void*>(address), sizeof(word));
+		// Resource tables often share pages with GPU-written data; dereferencing a clean word on
+		// such a page faults and drains the GPU queue (ASTRO BOT desert: ~2 drains, ~5 ms per frame).
+		const auto direct = g_direct_reader.load(std::memory_order_acquire);
+		if (direct == nullptr || !direct(address, &word, sizeof(word))) {
+			std::memcpy(&word, reinterpret_cast<const void*>(address), sizeof(word));
+		}
 	}
 	result = word;
 	return true;

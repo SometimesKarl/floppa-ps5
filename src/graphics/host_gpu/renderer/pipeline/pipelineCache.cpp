@@ -286,8 +286,14 @@ struct PipelineCache::ProgramCache {
 		lookup_key.hash            = params.hash;
 		lookup_key.user_data_count = params.user_data_count;
 		lookup_key.code_size       = static_cast<uint32_t>(params.code.size());
-		BuildStageStaticKey(input_info, lookup_key.static_state);
-		auto                                         entry = programs.find(lookup_key);
+		{
+			KYTY_PROFILER_BLOCK("ProgramCache: build static key");
+			BuildStageStaticKey(input_info, lookup_key.static_state);
+		}
+		auto entry = [&] {
+			KYTY_PROFILER_BLOCK("ProgramCache: find");
+			return programs.find(lookup_key);
+		}();
 		if (entry != programs.end() && entry->second.skip_dispatch) {
 			return {};
 		}
@@ -411,6 +417,7 @@ struct PipelineCache::ProgramCache {
 PipelineCache::PipelineCache(GraphicContext& graphics)
     : m_graphics(graphics), m_program_cache(std::make_unique<ProgramCache>(graphics.device)) {
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
+	ShaderRecompiler::IR::SetSrtDirectReader(&Libs::LibKernel::Memory::TryReadGpuCleanBacking);
 	InitializeDriverCache();
 }
 
