@@ -11,6 +11,9 @@
 #include "libs/libs.h"
 
 #include <algorithm>
+#include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <magic_enum.hpp>
@@ -348,6 +351,29 @@ const void* Audio::PrepareOutputBuffer(const PortOut& port, const void* data,
 	return buffer->data();
 }
 
+namespace {
+
+// Target depth of each blocking port's host queue. KYTY_AUDIO_LATENCY_MS overrides it (20-250).
+uint64_t AudioTargetLatencyUs() {
+	static const uint64_t latency = [] {
+		const char* value = std::getenv("KYTY_AUDIO_LATENCY_MS");
+		const auto  ms    = value != nullptr ? std::strtoul(value, nullptr, 10) : 40ul;
+		return static_cast<uint64_t>(std::clamp<unsigned long>(ms, 20ul, 250ul)) * 1000;
+	}();
+	return latency;
+}
+
+// KYTY_AV_LOG=1 prints each port's queued audio every 5 s (the host-side audio latency).
+bool AvLogEnabled() {
+	static const bool enabled = [] {
+		const char* value = std::getenv("KYTY_AV_LOG");
+		return value != nullptr && value[0] == '1';
+	}();
+	return enabled;
+}
+
+} // namespace
+
 bool Audio::QueueSdlAudio(PortOut* port, const void* data, bool blocking) {
 	EXIT_IF(port == nullptr);
 
@@ -363,7 +389,7 @@ bool Audio::QueueSdlAudio(PortOut* port, const void* data, bool blocking) {
 
 	uint32_t min_queued_size = 0;
 	if (blocking) {
-		constexpr uint64_t target_latency_us = 40000;
+		const uint64_t target_latency_us = AudioTargetLatencyUs();
 		const auto buffer_us = port->freq != 0 ? (1000000ULL * port->samples_num) / port->freq : 0;
 		const auto buffers =
 		    buffer_us != 0 ? static_cast<uint32_t>((target_latency_us + buffer_us - 1) / buffer_us)
@@ -399,6 +425,18 @@ bool Audio::QueueSdlAudio(PortOut* port, const void* data, bool blocking) {
 	if (blocking && !port->queue_primed &&
 	    SDL_GetAudioStreamQueued(port->stream) >= static_cast<int>(min_queued_size)) {
 		port->queue_primed = true;
+	}
+	if (AvLogEnabled()) {
+		static thread_local uint64_t last_log = 0;
+		const auto                    now      = LibKernel::KernelGetProcessTime();
+		if (now - last_log >= 5000000) {
+			last_log               = now;
+			const auto bytes_per_s = static_cast<double>(prepared_size) * port->freq /
+			                         std::max<uint32_t>(port->samples_num, 1);
+			std::printf("audio port=%p freq=%u grain=%u blocking=%d queued_ms=%.1f\n",
+			            static_cast<void*>(port), port->freq, port->samples_num, blocking ? 1 : 0,
+			            1000.0 * SDL_GetAudioStreamQueued(port->stream) / bytes_per_s);
+		}
 	}
 
 	return true;
