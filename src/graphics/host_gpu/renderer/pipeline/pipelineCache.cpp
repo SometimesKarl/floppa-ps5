@@ -11,6 +11,8 @@
 #include "graphics/host_gpu/renderer/debug.h"
 #include "graphics/host_gpu/renderer/depthRenderTarget.h"
 #include "graphics/host_gpu/renderer/image/imageView.h"
+#include "graphics/host_gpu/renderer/pipeline/shaderPrecompile.h"
+#include "graphics/presentation/window.h"
 #include "graphics/host_gpu/renderer/render.h"
 #include "graphics/host_gpu/renderer/renderContext.h"
 #include "graphics/shader/recompiler/ShaderRecompiler.h"
@@ -566,6 +568,8 @@ struct PipelineCache::ProgramCache {
 		entry->second.permutations.push_back(CompilePermutation(
 		    params, options, std::move(translated), entry->second.specialization, push_data_cursor));
 		const auto& permutation = entry->second.permutations.back();
+		ShaderPrecompile::Record(params, options, permutation.specialization, push_data_cursor,
+		                         lookup_key.static_state, input_info);
 		input_info.stage = {.program = &permutation.program, .resources = &entry->second.resources};
 		permutation.program.bindings.AdvancePushData(push_data_cursor);
 
@@ -723,6 +727,7 @@ PipelineCache::PipelineCache(GraphicContext& graphics)
 	EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
 	ShaderRecompiler::IR::SetSrtDirectReader(&Libs::LibKernel::Memory::TryReadGuestWithoutFault);
 	InitializeDriverCache();
+	StartPrecompile();
 	m_async_pipelines = AsyncPipelinesEnabled();
 	m_async = std::make_unique<AsyncCompiler>(m_graphics, m_driver_cache, CompileWorkerCount());
 	m_program_cache->background = [this](std::function<void()> task) {
@@ -731,6 +736,149 @@ PipelineCache::PipelineCache(GraphicContext& graphics)
 	PipelineCacheLog("Pipeline compiles: {} ({} workers, driver-cache probe {})",
 	                 m_async_pipelines ? "asynchronous" : "synchronous", CompileWorkerCount(),
 	                 m_graphics.pipeline_cache_control_enabled ? "on" : "off");
+}
+
+namespace {
+
+// Records are shader inputs (GCN code, user data, stage inputs, specialization) that the current
+// recompiler translates again, so they stay valid across emulator builds; only the layout of the
+// serialized structs has to match.
+std::string PrecompileLayoutKey() {
+	return fmt::format("layout:{}:{}:{}:{}:{}", sizeof(ShaderVertexInputInfo),
+	                   sizeof(ShaderPixelInputInfo), sizeof(ShaderComputeInputInfo),
+	                   sizeof(ShaderRecompiler::IR::ResourceSpecialization::Buffer),
+	                   sizeof(ShaderRecompiler::IR::ResourceSpecialization::Image));
+}
+
+} // namespace
+
+void PipelineCache::StartPrecompile() {
+	const auto title_id = PipelineCacheTitleId();
+	const char* enabled = std::getenv("KYTY_SHADER_PRECOMPILE");
+	if (title_id.empty() || (enabled != nullptr && enabled[0] == '0')) {
+		return;
+	}
+	const auto path    = std::filesystem::path("_PipelineCache") / (title_id + ".shaders");
+	auto       records = ShaderPrecompile::Load(path, PrecompileLayoutKey());
+	// Appending keeps what earlier runs recorded; only a set that did not load is rewritten.
+	ShaderPrecompile::Open(path, PrecompileLayoutKey(), !records.empty());
+	if (records.empty()) {
+		return;
+	}
+	m_precompile_done.store(false, std::memory_order_release);
+	m_precompile_thread = std::jthread([this, records = std::move(records)]() mutable {
+		KYTY_PROFILER_THREAD("Thread_ShaderPrecompile");
+		ReplayPrecompiled(std::move(records));
+	});
+}
+
+void PipelineCache::WaitForPrecompile() {
+	if (m_precompile_done.load(std::memory_order_acquire)) {
+		return;
+	}
+	std::scoped_lock lock(m_precompile_join_mutex);
+	if (m_precompile_thread.joinable()) {
+		m_precompile_thread.join();
+	}
+	m_precompile_done.store(true, std::memory_order_release);
+}
+
+// Translates the permutations earlier runs needed before the guest asks for them, so a scene
+// seen before costs no shader translation (5-600 ms per shader in ASTRO BOT) when it returns.
+void PipelineCache::ReplayPrecompiled(std::vector<ShaderPrecompile::PermutationRecord> records) {
+	const auto begin    = Common::Timer::QueryPerformanceCounter();
+	uint32_t   replayed = 0;
+	uint32_t   skipped  = 0;
+	auto last_status = begin;
+	for (size_t index = 0; index < records.size(); index++) {
+		const auto& record = records[index];
+		if (const auto now = Common::Timer::QueryPerformanceCounter(); QpcMs(last_status, now) > 250.0) {
+			last_status = now;
+			WindowSetStatus(fmt::format("compiling recorded shaders {}/{}", index, records.size()));
+		}
+		ShaderParams params {};
+		if (record.user_data.size() > params.user_data.size()) {
+			skipped++;
+			continue;
+		}
+		params.code = std::span<const uint32_t>(record.code.data(), record.code.size());
+		params.back_code =
+		    std::span<const uint32_t>(record.back_code.data(), record.back_code.size());
+		std::ranges::copy(record.user_data, params.user_data.begin());
+		params.user_data_count = static_cast<uint32_t>(record.user_data.size());
+		params.hash            = record.hash;
+
+		ShaderRecompiler::CompileOptions options;
+		options.stage          = record.stage;
+		options.shader_hash    = record.hash;
+		options.user_data      = std::span(params.user_data).first(params.user_data_count);
+		options.back_code      = params.back_code;
+		options.user_data_base = record.user_data_base;
+		options.wave_size      = record.wave_size;
+		options.dump_ir        = false;
+		options.dump_label     = "ShaderPrecompile";
+
+		ProgramCache::ProgramKey key;
+		key.stage           = record.stage;
+		key.hash            = record.hash;
+		key.user_data_count = params.user_data_count;
+		key.code_size       = static_cast<uint32_t>(record.code.size());
+
+		ShaderStageInputInfo stage_input {};
+		auto                 info = record.info;
+		if (auto* vertex = std::get_if<ShaderVertexInputInfo>(&info); vertex != nullptr) {
+			vertex->logical_stage = record.stage;
+			stage_input.vertex    = vertex;
+			BuildStageStaticKey(*vertex, key.static_state);
+		} else if (auto* pixel = std::get_if<ShaderPixelInputInfo>(&info); pixel != nullptr) {
+			stage_input.pixel = pixel;
+			BuildStageStaticKey(*pixel, key.static_state);
+		} else {
+			auto* compute       = std::get_if<ShaderComputeInputInfo>(&info);
+			stage_input.compute = compute;
+			BuildStageStaticKey(*compute, key.static_state);
+		}
+		// Anything the record does not restore would change the key; such a record could compile a
+		// different program under the same key, so it is not used.
+		if (key.static_state != record.static_key) {
+			skipped++;
+			continue;
+		}
+		options.input_info = stage_input;
+		{
+			Common::LockGuard lock(m_mutex);
+			if (const auto found = m_program_cache->programs.find(key);
+			    found != m_program_cache->programs.end() &&
+			    std::ranges::any_of(found->second.permutations, [&](const auto& permutation) {
+				    return permutation.specialization == record.specialization &&
+				           permutation.program.bindings.push_data_start_dword ==
+				               record.push_data_start_dword;
+			    })) {
+				continue;
+			}
+		}
+		auto translated = ShaderRecompiler::TranslateProgram(params.code, options);
+		Common::LockGuard lock(m_mutex);
+		if (translated.skip_dispatch) {
+			m_program_cache->programs.try_emplace(key, ShaderRecompiler::IR::ResourcePlan {})
+			    .first->second.skip_dispatch = true;
+			replayed++;
+			continue;
+		}
+		auto entry = m_program_cache->programs.find(key);
+		if (entry == m_program_cache->programs.end()) {
+			entry = m_program_cache->programs
+			            .try_emplace(key, ShaderRecompiler::IR::ExtractResourcePlan(translated.program))
+			            .first;
+		}
+		entry->second.permutations.push_back(m_program_cache->CompilePermutation(
+		    params, options, std::move(translated), record.specialization,
+		    record.push_data_start_dword));
+		replayed++;
+	}
+	WindowSetStatus({});
+	PipelineCacheLog("Shader precompile: {} permutations translated in {:.1f} s, {} skipped", replayed,
+	                 QpcMs(begin, Common::Timer::QueryPerformanceCounter()) / 1000.0, skipped);
 }
 
 void PipelineCache::RunInBackground(std::function<void()> task) {
@@ -760,6 +908,8 @@ void PipelineCache::NotePipelineCreated() {
 }
 
 PipelineCache::~PipelineCache() {
+	WaitForPrecompile();
+	ShaderPrecompile::Close();
 	Save();
 	auto destroy = [this](const auto& pipelines) {
 		for (const auto& [key, pipeline]: pipelines) {
@@ -864,6 +1014,7 @@ void PipelineCache::InitializeDriverCache() {
 }
 
 void PipelineCache::Save() {
+	WaitForPrecompile();
 	if (m_async != nullptr) {
 		m_async->Close();
 	}
@@ -998,6 +1149,7 @@ PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(
 		    static_cast<float>(std::min(limits.maxViewportDimensions[1], 16384u)) * 0.5f;
 		clip.enabled = true;
 	}
+	WaitForPrecompile();
 	Common::LockGuard lock(m_mutex);
 	uint32_t          push_data_cursor =
 	    mesh_active ? ShaderRecompiler::IR::PushData::MeshDrawDwordCount : 0;
@@ -1016,6 +1168,7 @@ ShaderProgram PipelineCache::GetComputeProgram(const HW::ComputeShaderInfo& regs
                                                ShaderComputeInputInfo&      input_info) {
 	input_info.host_subgroup_size = m_graphics.SupportsComputeWave64() ? 64u : 32u;
 	const auto        params      = PrepareProgram(regs, sh, input_info);
+	WaitForPrecompile();
 	Common::LockGuard lock(m_mutex);
 	uint32_t          push_data_cursor = 0;
 	return m_program_cache->Get(params, input_info, push_data_cursor);

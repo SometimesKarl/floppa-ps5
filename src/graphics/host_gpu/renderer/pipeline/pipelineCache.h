@@ -14,11 +14,17 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <span>
+#include <thread>
 #include <type_traits>
 #include <unordered_map>
 
 namespace Libs::Graphics {
+
+namespace ShaderPrecompile {
+struct PermutationRecord;
+} // namespace ShaderPrecompile
 
 struct GraphicContext;
 struct RenderColorInfo;
@@ -150,6 +156,9 @@ public:
 
 	// Runs `task` on a background compile worker (below normal priority).
 	void RunInBackground(std::function<void()> task);
+	// Blocks until the shader permutations recorded by earlier runs are translated again
+	// (started at construction on its own thread); the guest's first shader lookup waits here.
+	void WaitForPrecompile();
 
 private:
 	struct ProgramCache;
@@ -231,6 +240,13 @@ private:
 	std::atomic<bool>              m_save_pending           = false;
 
 	void InitializeDriverCache();
+	void StartPrecompile();
+	void ReplayPrecompiled(std::vector<ShaderPrecompile::PermutationRecord> records);
+
+	std::jthread      m_precompile_thread;
+	std::atomic<bool> m_precompile_done {true};
+	std::mutex        m_precompile_join_mutex;
+
 	// Writes the driver cache to disk and keeps it alive (safe while pipelines are created).
 	void WriteDriverCache();
 	// Called after each new pipeline: saves in the background at most once a minute, so a crash

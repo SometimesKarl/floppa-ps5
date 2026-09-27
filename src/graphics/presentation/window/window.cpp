@@ -913,6 +913,71 @@ void WindowContext::UpdateIcon() {
 	}
 }
 
+namespace {
+
+std::mutex  g_status_mutex;
+std::string g_status;
+std::string g_last_title;
+
+// The presenter must not wait for the main thread: it blocks for the whole of a Windows modal
+// move/resize loop, which froze presentation while the window was dragged. Publish the newest
+// title instead and let at most one pending main-thread callback apply it. The state has static
+// storage and the callback resolves the window by ID, so a callback that runs after the window
+// is gone does nothing.
+void PublishTitle(SDL_Window* window, std::string text) {
+	struct PendingTitle {
+		std::mutex        mutex;
+		std::string       text;
+		SDL_WindowID      window_id = 0;
+		std::atomic<bool> queued {false};
+	};
+	static PendingTitle pending;
+	{
+		std::lock_guard lock(pending.mutex);
+		pending.text      = std::move(text);
+		pending.window_id = SDL_GetWindowID(window);
+	}
+	if (pending.queued.exchange(true, std::memory_order_acq_rel)) {
+		return;
+	}
+	KYTY_PROFILER_BLOCK("UpdateTitle: queue main-thread update");
+	const bool queued = SDL_RunOnMainThread(
+	    [](void* data) {
+		    auto&        state = *static_cast<PendingTitle*>(data);
+		    std::string  title;
+		    SDL_WindowID id = 0;
+		    state.queued.store(false, std::memory_order_release);
+		    {
+			    std::lock_guard lock(state.mutex);
+			    title = state.text;
+			    id    = state.window_id;
+		    }
+		    if (auto* target = SDL_GetWindowFromID(id); target != nullptr) {
+			    SDL_SetWindowTitle(target, title.c_str());
+		    }
+	    },
+	    &pending, false);
+	EXIT_IF(!queued);
+}
+
+} // namespace
+
+void WindowSetStatus(const std::string& status) {
+	std::string text;
+	{
+		std::lock_guard lock(g_status_mutex);
+		g_status = status;
+		text     = g_last_title.empty() ? std::string("KytyPS5") : g_last_title;
+	}
+	if (g_window == nullptr || g_window->window == nullptr) {
+		return;
+	}
+	if (!status.empty()) {
+		text += " - " + status;
+	}
+	PublishTitle(g_window->window, std::move(text));
+}
+
 void WindowContext::UpdateTitle() {
 	static char title[128];
 	static char title_id[12];
@@ -953,45 +1018,14 @@ void WindowContext::UpdateTitle() {
 	    (has_title ? title : ""), (has_title ? ", " : ""), (has_title_id ? title_id : ""),
 	    (has_title_id ? ", " : ""), (has_app_ver ? app_ver : ""), (has_app_ver ? " " : ""),
 	    device_name, processor_name, frame_num, current_fps);
-
-	// The presenter must not wait for the main thread: it blocks for the whole of a Windows
-	// modal move/resize loop, which froze presentation while the window was dragged. Publish
-	// the newest title instead and let at most one pending main-thread callback apply it. The
-	// state has static storage and the callback resolves the window by ID, so a callback that
-	// runs after the window is gone does nothing.
-	struct PendingTitle {
-		std::mutex        mutex;
-		std::string       text;
-		SDL_WindowID      window_id = 0;
-		std::atomic<bool> queued {false};
-	};
-	static PendingTitle pending;
 	{
-		std::lock_guard lock(pending.mutex);
-		pending.text      = std::move(text);
-		pending.window_id = SDL_GetWindowID(window);
+		std::lock_guard lock(g_status_mutex);
+		g_last_title = text;
+		if (!g_status.empty()) {
+			text += " - " + g_status;
+		}
 	}
-	if (pending.queued.exchange(true, std::memory_order_acq_rel)) {
-		return;
-	}
-	KYTY_PROFILER_BLOCK("UpdateTitle: queue main-thread update");
-	const bool queued = SDL_RunOnMainThread(
-	    [](void* data) {
-		    auto&        state = *static_cast<PendingTitle*>(data);
-		    std::string  title;
-		    SDL_WindowID id = 0;
-		    state.queued.store(false, std::memory_order_release);
-		    {
-			    std::lock_guard lock(state.mutex);
-			    title = state.text;
-			    id    = state.window_id;
-		    }
-		    if (auto* target = SDL_GetWindowFromID(id); target != nullptr) {
-			    SDL_SetWindowTitle(target, title.c_str());
-		    }
-	    },
-	    &pending, false);
-	EXIT_IF(!queued);
+	PublishTitle(window, std::move(text));
 }
 
 } // namespace Libs::Graphics
