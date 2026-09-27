@@ -279,6 +279,29 @@ foreach(shader_name IN LISTS gpu_tiler_shader_names)
 	)
 	list(APPEND gpu_tiler_shader_headers "${shader_header}")
 endforeach()
+# The 3D families are also built with the element size fixed at compile time. The AMD Windows
+# driver crashed compiling the specialization-constant form (standard64_3d, 8-byte elements;
+# Demon's Souls); the fixed forms give it plain constant code.
+foreach(shader_name IN ITEMS standard4_3d standard64_3d prt_3d)
+	foreach(element_bytes IN ITEMS 1 2 4 8 16)
+		set(shader_source "${gpu_tiler_shader_dir}/gpu_tiler_${shader_name}.comp")
+		set(shader_spv "${gpu_tiler_generated_dir}/gpu_tiler_${shader_name}_e${element_bytes}.spv")
+		set(shader_header "${gpu_tiler_generated_dir}/gpu_tiler_${shader_name}_e${element_bytes}_spv.h")
+		string(TOUPPER "GPU_TILER_${shader_name}_E${element_bytes}_SPV" shader_symbol)
+		add_custom_command(
+			OUTPUT "${shader_header}"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${gpu_tiler_generated_dir}"
+			COMMAND "${KYTY_GLSLANG_VALIDATOR}" -V --target-env vulkan1.3 -Os
+			        "-DFIXED_ELEMENT_BYTES=${element_bytes}u" "-I${gpu_tiler_shader_dir}"
+			        -o "${shader_spv}" "${shader_source}"
+			COMMAND ${CMAKE_COMMAND} -DINPUT=${shader_spv} -DOUTPUT=${shader_header}
+			        -DSYMBOL=${shader_symbol} -P "${KYTY_SOURCE_DIR}/embed_spirv.cmake"
+			DEPENDS "${shader_source}" ${gpu_tiler_shader_includes}
+			VERBATIM
+		)
+		list(APPEND gpu_tiler_shader_headers "${shader_header}")
+	endforeach()
+endforeach()
 
 set(fault_buffer_shader_source "${gpu_tiler_shader_dir}/fault_buffer_process.comp")
 set(fault_buffer_shader_spv "${gpu_tiler_generated_dir}/fault_buffer_process.spv")

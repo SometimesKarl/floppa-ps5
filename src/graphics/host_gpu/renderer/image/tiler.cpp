@@ -5,6 +5,21 @@
 #include "gpu_tiler_shaders/gpu_tiler_demote_d16_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_depth_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_promote_d16_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_3d_e1_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_3d_e16_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_3d_e2_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_3d_e4_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_3d_e8_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e1_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e16_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e2_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e4_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e8_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard64_3d_e1_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard64_3d_e16_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard64_3d_e2_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard64_3d_e4_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_standard64_3d_e8_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_prt_3d_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_prt_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_render_target_spv.h"
@@ -21,9 +36,9 @@
 #include "graphics/host_gpu/renderer/image/image.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <array>
 #include <bit>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 
@@ -266,8 +281,38 @@ vk::Pipeline TileManager::GetPipeline(uint32_t slot) {
 	std::fflush(stdout);
 	const vk::SpecializationMapEntry entries[] {{0, 0, 4}, {1, 4, 4}};
 	const vk::SpecializationInfo     specialization {2, entries, sizeof(values), values};
-	const auto module =
-	    CompileSPV({shaders[family_index].code, shaders[family_index].words}, m_graphics.device);
+	// The 3D families use their compile-time element-size builds (see CMakeLists.txt): the AMD
+	// Windows driver crashed compiling the specialization-constant form.
+	static constexpr std::array<Shader, BytesPerElementCount> standard4_3d_fixed {{
+	    {GPU_TILER_STANDARD4_3D_E1_SPV, std::size(GPU_TILER_STANDARD4_3D_E1_SPV)},
+	    {GPU_TILER_STANDARD4_3D_E2_SPV, std::size(GPU_TILER_STANDARD4_3D_E2_SPV)},
+	    {GPU_TILER_STANDARD4_3D_E4_SPV, std::size(GPU_TILER_STANDARD4_3D_E4_SPV)},
+	    {GPU_TILER_STANDARD4_3D_E8_SPV, std::size(GPU_TILER_STANDARD4_3D_E8_SPV)},
+	    {GPU_TILER_STANDARD4_3D_E16_SPV, std::size(GPU_TILER_STANDARD4_3D_E16_SPV)},
+	}};
+	static constexpr std::array<Shader, BytesPerElementCount> standard64_3d_fixed {{
+	    {GPU_TILER_STANDARD64_3D_E1_SPV, std::size(GPU_TILER_STANDARD64_3D_E1_SPV)},
+	    {GPU_TILER_STANDARD64_3D_E2_SPV, std::size(GPU_TILER_STANDARD64_3D_E2_SPV)},
+	    {GPU_TILER_STANDARD64_3D_E4_SPV, std::size(GPU_TILER_STANDARD64_3D_E4_SPV)},
+	    {GPU_TILER_STANDARD64_3D_E8_SPV, std::size(GPU_TILER_STANDARD64_3D_E8_SPV)},
+	    {GPU_TILER_STANDARD64_3D_E16_SPV, std::size(GPU_TILER_STANDARD64_3D_E16_SPV)},
+	}};
+	static constexpr std::array<Shader, BytesPerElementCount> prt_3d_fixed {{
+	    {GPU_TILER_PRT_3D_E1_SPV, std::size(GPU_TILER_PRT_3D_E1_SPV)},
+	    {GPU_TILER_PRT_3D_E2_SPV, std::size(GPU_TILER_PRT_3D_E2_SPV)},
+	    {GPU_TILER_PRT_3D_E4_SPV, std::size(GPU_TILER_PRT_3D_E4_SPV)},
+	    {GPU_TILER_PRT_3D_E8_SPV, std::size(GPU_TILER_PRT_3D_E8_SPV)},
+	    {GPU_TILER_PRT_3D_E16_SPV, std::size(GPU_TILER_PRT_3D_E16_SPV)},
+	}};
+	auto shader = shaders[family_index];
+	if (shader.code == GPU_TILER_STANDARD4_3D_SPV) {
+		shader = standard4_3d_fixed[element_index];
+	} else if (shader.code == GPU_TILER_STANDARD64_3D_SPV) {
+		shader = standard64_3d_fixed[element_index];
+	} else if (shader.code == GPU_TILER_PRT_3D_SPV) {
+		shader = prt_3d_fixed[element_index];
+	}
+	const auto module = CompileSPV({shader.code, shader.words}, m_graphics.device);
 	vk::PipelineShaderStageCreateInfo stage {};
 	stage.stage               = vk::ShaderStageFlagBits::eCompute;
 	stage.module              = module;
