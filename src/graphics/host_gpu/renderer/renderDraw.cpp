@@ -533,7 +533,14 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 			}
 		}
 		if (feedback_aspects && !m_context.GetGraphics().attachment_feedback_loop_enabled) {
-			EXIT("depth attachment feedback loop is not supported by the host\n");
+			// AMD's Windows driver has VK_EXT_attachment_feedback_loop_layout but not the dynamic
+			// state extension (Demon's Souls samples a depth target it writes). Continue in the
+			// GENERAL layout below, as for sampled read-only depth, rather than stopping.
+			static std::atomic_bool warned = false;
+			if (!warned.exchange(true, std::memory_order_relaxed)) {
+				std::printf("Warning: a draw samples the depth target it writes, and the host lacks "
+				            "attachment feedback loop support; using the GENERAL layout\n");
+			}
 		}
 		auto layout = depth_attachment_layout(depth);
 		if (sampled_aspects & ~DepthReadableAspects(layout)) {
