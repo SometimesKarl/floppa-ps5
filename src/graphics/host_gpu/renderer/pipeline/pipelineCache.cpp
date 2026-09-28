@@ -367,6 +367,8 @@ struct PipelineCache::ProgramCache {
 		static uint64_t   hits    = 0;
 		static uint64_t   misses  = 0;
 		static uint64_t   bypassed = 0;
+		static uint64_t   delta_walks = 0, delta_identical = 0, delta_descriptors = 0,
+		                delta_descriptors_same = 0, delta_flat = 0, delta_flat_same = 0;
 		static auto       printed = std::chrono::steady_clock::now();
 		++memo_clock;
 		if (entry.memo_bypass > 0) {
@@ -377,10 +379,35 @@ struct PipelineCache::ProgramCache {
 			    .shader_base                = shader_base,
 			    .read_specialization_memory = ReadShaderGuestMemory,
 			};
+			ShaderRecompiler::IR::ResourceSnapshot before;
+			if (stats) {
+				before = entry.resources;
+			}
 			EXIT_IF(!ShaderRecompiler::IR::MaterializeResources(
 			    entry.resource_plan, runtime, entry.resources, entry.specialization));
 			// The resources no longer come from a memo slot.
 			entry.current_memo = -1;
+			if (stats) {
+				// How much a walk of a missing-memo shader differs from its previous walk: what an
+				// incremental re-evaluation could keep.
+				const auto same = [](const auto& a, const auto& b, uint64_t& total, uint64_t& kept) {
+					total += b.size();
+					for (size_t i = 0; i < b.size(); i++) {
+						kept += i < a.size() && a[i] == b[i] ? 1u : 0u;
+					}
+				};
+				const auto& after = entry.resources;
+				same(before.buffers, after.buffers, delta_descriptors, delta_descriptors_same);
+				same(before.images, after.images, delta_descriptors, delta_descriptors_same);
+				same(before.samplers, after.samplers, delta_descriptors, delta_descriptors_same);
+				same(before.flattened_srt, after.flattened_srt, delta_flat, delta_flat_same);
+				delta_walks++;
+				delta_identical += before.buffers == after.buffers && before.images == after.images &&
+				                           before.samplers == after.samplers &&
+				                           before.flattened_srt == after.flattened_srt
+				                       ? 1u
+				                       : 0u;
+			}
 			return;
 		}
 		for (size_t i = 0; i < entry.memo.size(); i++) {
@@ -472,7 +499,17 @@ struct PipelineCache::ProgramCache {
 			for (size_t i = 0; i < top.size() && i < 6; i++) {
 				std::printf(" s%u %" PRIu64, top[i].first, top[i].second);
 			}
-			std::printf("\n");
+			const auto pct = [](uint64_t part, uint64_t whole) {
+				return whole != 0 ? 100.0 * static_cast<double>(part) / static_cast<double>(whole)
+				                  : 0.0;
+			};
+			std::printf("; walks without memo vs the shader's previous walk: %.0f%% identical, "
+			            "descriptors %.0f%% same, flat SRT words %.0f%% same\n",
+			            pct(delta_identical, delta_walks),
+			            pct(delta_descriptors_same, delta_descriptors),
+			            pct(delta_flat_same, delta_flat));
+			delta_walks = delta_identical = delta_descriptors = delta_descriptors_same = 0;
+			delta_flat = delta_flat_same = 0;
 			hits = misses = bypassed = first_misses = memory_misses = memo_reads = 0;
 			user_data_misses.clear();
 		}
