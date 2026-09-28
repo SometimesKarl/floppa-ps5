@@ -13,6 +13,7 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <vector>
 
@@ -118,7 +119,7 @@ public:
 	void SetDebugInfo(uint32_t op, uint64_t submit_id, uint32_t arg0 = 0, uint32_t arg1 = 0,
 	                  uint32_t arg2 = 0, uint32_t arg3 = 0, uint64_t arg4 = 0);
 	void BeginRendering(const RenderState& state) const;
-	void EndRendering() const;
+	void EndRendering(std::source_location where = std::source_location::current()) const;
 
 	[[nodiscard]] vk::CommandBuffer Handle() const;
 	// Whether anything may have been recorded since the last global barrier: every recording

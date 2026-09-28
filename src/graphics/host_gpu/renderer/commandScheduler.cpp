@@ -202,9 +202,9 @@ void CommandScheduler::BeginRendering(const RenderState& state) {
 	Current().BeginRendering(state);
 }
 
-void CommandScheduler::EndRendering() {
+void CommandScheduler::EndRendering(std::source_location where) {
 	if (Active() && !m_command.IsInvalid()) {
-		Current().EndRendering();
+		Current().EndRendering(where);
 	}
 }
 

@@ -182,6 +182,25 @@ void RenderContext::RunGarbageCollector() {
 				}
 				std::printf("\n");
 			}
+			{
+				std::scoped_lock lock {RenderStats::g_break_mutex};
+				std::vector<std::pair<std::pair<const char*, uint32_t>, uint64_t>> breaks(
+				    RenderStats::g_breaks.begin(), RenderStats::g_breaks.end());
+				RenderStats::g_breaks.clear();
+				std::ranges::sort(breaks, [](const auto& a, const auto& b) { return a.second > b.second; });
+				std::printf("GPU stats: rendering ended by (per second):");
+				for (size_t i = 0; i < breaks.size() && i < 10; i++) {
+					const std::string_view file = breaks[i].first.first;
+					const auto slash = file.find_last_of("\\/");
+					std::printf(" [%.*s", static_cast<int>(file.size() - (slash + 1)),
+					            file.data() + slash + 1);
+					if (breaks[i].first.second != 0) {
+						std::printf(":%u", breaks[i].first.second);
+					}
+					std::printf(" %.0f]", breaks[i].second / seconds);
+				}
+				std::printf("\n");
+			}
 			std::fflush(stdout);
 		}
 	}

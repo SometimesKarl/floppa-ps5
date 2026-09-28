@@ -69,7 +69,32 @@ void CommandBuffer::BeginRendering(const RenderState& state) const {
 	}
 	EXIT_IF(state.width == 0 || state.height == 0 || state.num_layers == 0 ||
 	        state.num_color_attachments > RENDER_COLOR_ATTACHMENTS_MAX);
-	EndRendering();
+	if (m_rendering && RenderStats::Enabled()) {
+		// What the next draw needs differently from the rendering in progress.
+		const auto& a = m_render_state;
+		const auto& b = state;
+		bool views = a.num_color_attachments != b.num_color_attachments ||
+		             a.depth_stencil_attachment.image_view != b.depth_stencil_attachment.image_view;
+		bool layouts = a.depth_stencil_attachment.image_layout != b.depth_stencil_attachment.image_layout;
+		bool clears  = a.depth_stencil_attachment.depth_clear != b.depth_stencil_attachment.depth_clear ||
+		              a.depth_stencil_attachment.stencil_clear !=
+		                  b.depth_stencil_attachment.stencil_clear;
+		for (uint32_t i = 0; i < std::min(a.num_color_attachments, b.num_color_attachments); i++) {
+			views |= a.color_attachments[i].image_view != b.color_attachments[i].image_view;
+			layouts |= a.color_attachments[i].image_layout != b.color_attachments[i].image_layout;
+			clears |= a.color_attachments[i].is_clear != b.color_attachments[i].is_clear;
+		}
+		const bool extent = a.width != b.width || a.height != b.height || a.num_layers != b.num_layers;
+		RenderStats::CountBreak(views    ? "new: other attachments"
+		                        : extent ? "new: same attachments, other extent"
+		                        : layouts ? "new: same attachments, other layout"
+		                        : clears  ? "new: same attachments, clear"
+		                                  : "new: same attachments, other state",
+		                        0);
+		EndRendering(std::source_location {});
+	} else {
+		EndRendering();
+	}
 	RenderStats::Count(RenderStats::g_begin_rendering);
 
 	std::array<vk::RenderingAttachmentInfo, RENDER_COLOR_ATTACHMENTS_MAX> colors {};
@@ -112,12 +137,15 @@ void CommandBuffer::BeginRendering(const RenderState& state) const {
 	m_rendering    = true;
 }
 
-void CommandBuffer::EndRendering() const {
+void CommandBuffer::EndRendering(std::source_location where) const {
 	if (!m_rendering) {
 		return;
 	}
 	Handle().endRendering();
 	RenderStats::Count(RenderStats::g_end_rendering);
+	if (where.line() != 0 && RenderStats::Enabled()) {
+		RenderStats::CountBreak(where.file_name(), where.line());
+	}
 	m_rendering    = false;
 	m_render_state = {};
 }

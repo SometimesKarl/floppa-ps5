@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 
@@ -38,6 +39,16 @@ inline bool Enabled() {
 inline void CountTarget(uint32_t width, uint32_t height) {
 	std::scoped_lock lock {g_target_mutex};
 	g_target_sizes[(static_cast<uint64_t>(width) << 32u) | height]++;
+}
+
+// Where recorded rendering was ended, with KYTY_GPU_STATS: a source location (file, line) of an
+// explicit EndRendering, or a reason (line 0) when the next draw needed other attachments.
+inline std::mutex                                           g_break_mutex;
+inline std::map<std::pair<const char*, uint32_t>, uint64_t> g_breaks;
+
+inline void CountBreak(const char* where, uint32_t line) {
+	std::scoped_lock lock {g_break_mutex};
+	g_breaks[{where, line}]++;
 }
 
 } // namespace Libs::Graphics::RenderStats
