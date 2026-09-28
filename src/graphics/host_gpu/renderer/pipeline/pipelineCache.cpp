@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 
 #include "common/assert.h"
 #include "common/emulatorConfig.h"
@@ -405,6 +406,7 @@ struct PipelineCache::ProgramCache {
 	                               ShaderRecompiler::TranslateResult            translated,
 	                               ShaderRecompiler::IR::ResourceSpecialization specialization,
 	                               uint32_t push_data_start_dword) {
+		HitchStats::Scope hitch(HitchStats::Category::ShaderCompile);
 		const char* stage_name = nullptr;
 		switch (options.stage) {
 			case ShaderType::Vertex: stage_name = "vs"; break;
@@ -553,6 +555,7 @@ struct PipelineCache::ProgramCache {
 			options.wave_size = input_info.wave_size;
 		}
 		const auto translate_begin = Common::Timer::QueryPerformanceCounter();
+		HitchStats::Scope hitch(HitchStats::Category::ShaderCompile);
 		auto translated = ShaderRecompiler::TranslateProgram(params.code, options);
 		last_translate_ms = QpcMs(translate_begin, Common::Timer::QueryPerformanceCounter());
 		if (translated.skip_dispatch) {
@@ -1353,6 +1356,7 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 		if (!may_defer && !found.ready.load(std::memory_order_acquire)) {
 			// A draw that must not be skipped needs a pipeline a worker is still compiling.
 			KYTY_PROFILER_BLOCK("PipelineCache: wait for a background compile");
+			HitchStats::Scope hitch(HitchStats::Category::PipelineBuild);
 			while (!found.ready.load(std::memory_order_acquire)) {
 				std::this_thread::sleep_for(std::chrono::microseconds(200));
 			}
@@ -1370,6 +1374,7 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 		     static_cast<void*>(pixel_program.module));
 	}
 
+	HitchStats::Scope hitch(HitchStats::Category::PipelineBuild);
 	auto cached = std::make_unique<Pipeline>();
 	LogPipelineTrace("CreatePipelineInternal begin", vs_id, ps_id);
 	const auto create_begin = Common::Timer::QueryPerformanceCounter();
@@ -1431,6 +1436,7 @@ PipelineCache::GetComputePipeline(const ShaderComputeInputInfo& input_info,
 		ShaderDbgDumpInputInfo(input_info);
 	}
 
+	HitchStats::Scope hitch(HitchStats::Category::PipelineBuild);
 	auto cached = std::make_unique<Pipeline>();
 	const auto create_begin = Common::Timer::QueryPerformanceCounter();
 	CreatePipelineInternal(m_graphics, *cached, input_info, compute_program.module, m_driver_cache);

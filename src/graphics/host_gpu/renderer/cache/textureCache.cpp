@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/cache/textureCache.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -1257,7 +1258,9 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 
 void TextureCache::InitializeImage(ImageId id) {
 	KYTY_PROFILER_FUNCTION();
+	HitchStats::Scope hitch(HitchStats::Category::TextureUpload);
 	auto& image = m_slot_images[id];
+	HitchStats::CountTexture(image.info.data.size);
 	if (image.info.data.Empty()) {
 		return;
 	}
@@ -1533,6 +1536,7 @@ void TextureCache::ClearColorIfPredicate(CommandBuffer& command, ImageId id, vk:
 
 void TextureCache::RefreshImage(ImageId id) {
 	KYTY_PROFILER_FUNCTION();
+	HitchStats::Scope hitch(HitchStats::Category::TextureUpload);
 	auto& image = m_slot_images[id];
 	if (image.depth_id &&
 	    (m_slot_images[image.depth_id].info.metadata.stencil_compressed ||

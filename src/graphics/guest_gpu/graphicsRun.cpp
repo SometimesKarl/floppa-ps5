@@ -1,4 +1,5 @@
 #include "graphics/guest_gpu/graphicsRun.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 #include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/allocSampler.h"
@@ -505,6 +506,7 @@ void GuestGpu::ThreadRun(void* data) {
 	Common::AllocSamplerEnableThread();
 	Common::Thread::RaiseCurrentPriority();
 	GpuProfiler::EnableZonesOnThisThread();
+	HitchStats::BindThisThread();
 	g_gpu_thread = true;
 	g_gpu_state  = gpu;
 
@@ -518,6 +520,7 @@ void GuestGpu::ThreadRun(void* data) {
 			while (gpu->m_commands.empty() && gpu->m_submission_count == 0 && !gpu->m_stopping) {
 				gpu->m_processing = false;
 				gpu->m_idle.Signal();
+				HitchStats::Scope idle(HitchStats::Category::GuestIdle);
 				gpu->m_work_available.Wait(&gpu->m_queue_mutex);
 			}
 			if (gpu->m_stopping && gpu->m_commands.empty() && gpu->m_submission_count == 0) {
@@ -540,7 +543,10 @@ void GuestGpu::ThreadRun(void* data) {
 				}
 				if (selected_queue < 0) {
 					gpu->m_processing = false;
-					gpu->m_work_available.WaitFor(&gpu->m_queue_mutex, 100);
+					{
+						HitchStats::Scope idle(HitchStats::Category::GuestIdle);
+						gpu->m_work_available.WaitFor(&gpu->m_queue_mutex, 100);
+					}
 					for (auto& queue: gpu->m_queues) {
 						if (!queue.empty()) {
 							queue.front().blocked = false;

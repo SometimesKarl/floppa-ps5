@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/cache/bufferCache.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 #include "graphics/host_gpu/renderer/cache/bufferDownloadBatch.h"
 
 #include "common/alignment.h"
@@ -464,6 +465,7 @@ BufferId BufferCache::CreateBuffer(uint64_t vaddr, uint64_t size) {
 
 bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t size, bool is_written,
                                     bool is_texel_buffer) {
+	HitchStats::Scope hitch(HitchStats::Category::BufferUpload);
 	// The copy list is reused on this thread (uploads run hundreds of times a second); a
 	// nested call gets its own.
 	thread_local std::vector<vk::BufferCopy> reused;

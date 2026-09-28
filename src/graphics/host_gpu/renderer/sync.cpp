@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/sync.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 #include "graphics/host_gpu/renderer/renderStats.h"
 #include "graphics/host_gpu/renderer/resolutionControl.h"
 
@@ -171,6 +172,7 @@ uint64_t PrepareVideoOutFlip(CommandBuffer& buffer, int handle, int index, int f
 			EXIT_IF(request_id == 0);
 			RenderStats::Count(RenderStats::g_guest_frames);
 			ResolutionControl::EndGuestFrame();
+			HitchStats::EndGuestFrame();
 			return request_id;
 		}
 		if (result != VideoOut::VIDEO_OUT_ERROR_FLIP_QUEUE_FULL) {
@@ -178,6 +180,7 @@ uint64_t PrepareVideoOutFlip(CommandBuffer& buffer, int handle, int index, int f
 			     "\n",
 			     result, handle, index, flip_mode, flip_arg);
 		}
+		HitchStats::Scope wait(HitchStats::Category::FlipQueueWait);
 		video_out.WaitForSubmitSlot(handle);
 	}
 }

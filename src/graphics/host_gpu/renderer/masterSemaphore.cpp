@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/masterSemaphore.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 
 #include "common/assert.h"
 #include "common/profiler.h"
@@ -46,6 +47,7 @@ void MasterSemaphore::Wait(uint64_t tick) {
 	}
 
 	KYTY_PROFILER_BLOCK("MasterSemaphore::Wait (CPU blocked on GPU)", profiler::colors::RedA100);
+	HitchStats::Scope hitch(HitchStats::Category::GpuWait);
 	vk::SemaphoreWaitInfo wait_info {};
 	wait_info.semaphoreCount = 1;
 	wait_info.pSemaphores    = &m_semaphore;
