@@ -945,6 +945,50 @@ static bool MaterializeResourcesImpl(const ResourcePlan& program, const SrtRunti
 bool MaterializeResources(const ResourcePlan& program, const SrtRuntime& runtime,
                           ResourceSnapshot& snapshot, ResourceSpecialization& specialization) {
 	KYTY_PROFILER_FUNCTION();
+	// KYTY_SRT_INCREMENTAL_VERIFY=1: after every incremental walk, a full one; any difference is
+	// reported.
+	static const bool verify_incremental = std::getenv("KYTY_SRT_INCREMENTAL_VERIFY") != nullptr;
+	if (verify_incremental && runtime.incremental) {
+		const bool             ok                 = MaterializeResourcesImpl(program, runtime, snapshot,
+		                                                                     specialization);
+		ResourceSnapshot       reference_snapshot = snapshot;
+		ResourceSpecialization reference_spec     = specialization;
+		auto                   full               = runtime;
+		full.incremental                          = false;
+		const bool reference_ok =
+		    MaterializeResourcesImpl(program, full, reference_snapshot, reference_spec);
+		static uint64_t checks     = 0;
+		static uint64_t mismatches = 0;
+		checks++;
+		const bool same = ok == reference_ok &&
+		                  (!ok || (snapshot.buffers == reference_snapshot.buffers &&
+		                           snapshot.images == reference_snapshot.images &&
+		                           snapshot.samplers == reference_snapshot.samplers &&
+		                           snapshot.flattened_srt == reference_snapshot.flattened_srt &&
+		                           snapshot.uniform_fill == reference_snapshot.uniform_fill &&
+		                           specialization == reference_spec));
+		if (!same && ++mismatches <= 16) {
+			std::printf("SRT incremental verify: mismatch hash=0x%016llx ok=%d/%d buffers=%d "
+			            "images=%d samplers=%d flat=%d fill=%d spec=%d\n",
+			            static_cast<unsigned long long>(program.shader_hash), ok, reference_ok,
+			            snapshot.buffers == reference_snapshot.buffers,
+			            snapshot.images == reference_snapshot.images,
+			            snapshot.samplers == reference_snapshot.samplers,
+			            snapshot.flattened_srt == reference_snapshot.flattened_srt,
+			            snapshot.uniform_fill == reference_snapshot.uniform_fill,
+			            specialization == reference_spec);
+		}
+		if ((checks & 0x3fffu) == 0) {
+			std::printf("SRT incremental verify: %llu walks, %llu mismatches\n",
+			            static_cast<unsigned long long>(checks),
+			            static_cast<unsigned long long>(mismatches));
+			std::fflush(stdout);
+		}
+		// The full walk's results are the reference: keep them.
+		snapshot       = std::move(reference_snapshot);
+		specialization = std::move(reference_spec);
+		return reference_ok;
+	}
 	// KYTY_SRT_VERIFY=1: evaluate with the IR interpreter as well and report any difference
 	// from the decoded-node evaluator (SrtWalker::EvaluateNode).
 	static const bool verify = std::getenv("KYTY_SRT_VERIFY") != nullptr;
@@ -1019,8 +1063,52 @@ static bool MaterializeResourcesImpl(const ResourcePlan& program, const SrtRunti
 		observed.read_specialization_memory = CaptureStrictRead;
 		if (observed.read_memory != nullptr) observed.read_memory = CaptureOrdinaryRead;
 	}
-	SrtWalker clean(program, CleanRuntime(observed));
+	// Incremental walk (SrtRuntime::incremental): the values of the previous walk whose inputs did
+	// not change are kept. The guest memory words it read are read again first, and a word that
+	// changed marks its bucket changed. The list carries over for the next walk (without the
+	// changed buckets, whose values this walk evaluates and reads again); once it has grown to
+	// twice the last full walk's list, a full walk rebuilds it exactly.
+	const auto clean_runtime = CleanRuntime(observed);
+	const bool incremental   = runtime.incremental && !capture_reads && program.delta_reads_valid &&
+	                         program.delta_reads.size() <= 2 * program.delta_full_reads + 64;
+	uint64_t changed = 0;
+	if (incremental) {
+		for (auto& read: program.delta_reads) {
+			uint32_t value = 0;
+			if (!SrtWalker::ReadAgain(read, clean_runtime, value) || value != read.value) {
+				changed |= SrtWalker::MemoryBit(read.address);
+			}
+		}
+	}
+	thread_local std::vector<ResourcePlan::DeltaRead> walk_reads;
+	walk_reads.clear();
+	struct RecordReadsScope {
+		RecordReadsScope() { SrtWalker::RecordReads(&walk_reads); }
+		~RecordReadsScope() { SrtWalker::RecordReads(nullptr); }
+		RecordReadsScope(const RecordReadsScope&)            = delete;
+		RecordReadsScope& operator=(const RecordReadsScope&) = delete;
+	} record_reads;
+	// Valid again only once this walk completes.
+	program.delta_reads_valid = false;
+	SrtWalker clean(program, clean_runtime);
 	SrtWalker walker(program, observed, program.clean_flat_slots, &clean);
+	if (incremental) {
+		clean.KeepUnchanged(changed);
+		walker.KeepUnchanged(changed);
+	}
+	const auto finish_reads = [&] {
+		if (incremental) {
+			std::erase_if(program.delta_reads, [&](const ResourcePlan::DeltaRead& read) {
+				return (SrtWalker::MemoryBit(read.address) & changed) != 0;
+			});
+			program.delta_reads.insert(program.delta_reads.end(), walk_reads.begin(),
+			                           walk_reads.end());
+		} else {
+			program.delta_reads.assign(walk_reads.begin(), walk_reads.end());
+			program.delta_full_reads = walk_reads.size();
+		}
+		program.delta_reads_valid = true;
+	};
 	std::span<const uint8_t> active;
 	{
 		KYTY_PROFILER_BLOCK("MaterializeResources: active sources");
@@ -1122,7 +1210,11 @@ static bool MaterializeResourcesImpl(const ResourcePlan& program, const SrtRunti
 	}
 	if (capture_reads && !WrittenBuffersDisjoint(program, snapshot, reads)) return false;
 	snapshot.user_data.assign(runtime.user_data.begin(), runtime.user_data.end());
-	return BuildResourceSpecialization(program, snapshot, specialization);
+	if (!BuildResourceSpecialization(program, snapshot, specialization)) {
+		return false;
+	}
+	finish_reads();
+	return true;
 }
 
 void ApplyResourceSpecialization(Program& program, const ResourceSpecialization& specialization) {

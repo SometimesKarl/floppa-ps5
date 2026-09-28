@@ -374,10 +374,16 @@ struct PipelineCache::ProgramCache {
 		if (entry.memo_bypass > 0) {
 			entry.memo_bypass--;
 			++bypassed;
+			// KYTY_SRT_INCREMENTAL=0: always walk in full.
+			static const bool incremental = [] {
+				const char* value = std::getenv("KYTY_SRT_INCREMENTAL");
+				return value == nullptr || value[0] != '0';
+			}();
 			const ShaderRecompiler::IR::SrtRuntime runtime {
 			    .user_data                  = user_data,
 			    .shader_base                = shader_base,
 			    .read_specialization_memory = ReadShaderGuestMemory,
+			    .incremental                = incremental,
 			};
 			ShaderRecompiler::IR::ResourceSnapshot before;
 			if (stats) {

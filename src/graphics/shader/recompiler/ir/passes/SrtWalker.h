@@ -17,6 +17,10 @@ struct SrtRuntime {
 	SrtMemoryReader           read_memory                = nullptr;
 	void*                     userdata                   = nullptr;
 	SrtMemoryReader           read_specialization_memory = nullptr;
+	// MaterializeResources: reuse the values of the plan's previous walk whose inputs (user-data
+	// registers, guest memory words) did not change. Not for callers that observe reads (a
+	// memo capturing them needs every read performed).
+	bool                      incremental                = false;
 };
 
 enum class RuntimeValueType { Any, Integer };
@@ -60,6 +64,20 @@ public:
 
 	bool Evaluate(Value value, uint32_t& result);
 	bool EvaluateDescriptor(uint32_t source, DescriptorValue& result);
+
+	// Incremental walks. Every memoized value records dependency bits: one per user-data
+	// register it read (the last bit shared by high registers) and one per bucket of guest
+	// memory words it read. Before evaluating, KeepUnchanged keeps the values of this context's
+	// previous walk whose bits miss `changed` (memory buckets whose words changed; registers
+	// that differ are added here). Nothing is kept when the previous walk had other inputs
+	// shapes (user-data count, shader base) or this walker evaluates under an EXEC mask.
+	static uint64_t MemoryBit(uint64_t address);
+	void            KeepUnchanged(uint64_t changed);
+	// While set on this thread, every guest memory word a walker reads is appended here.
+	static void RecordReads(std::vector<ResourcePlan::DeltaRead>* reads);
+	// Reads a recorded word again through the same kind of reader.
+	static bool ReadAgain(const ResourcePlan::DeltaRead& read, const SrtRuntime& clean_runtime,
+	                      uint32_t& value);
 	// An empty span means that all sources are active.
 	std::span<const uint8_t> FindActiveSources();
 	bool RefreshFlatBuffer(std::vector<uint32_t>& flat);
@@ -90,6 +108,8 @@ private:
 	Value                           m_active_mask;
 	ResourcePlan::EvaluationContext& m_context;
 	bool                             m_fast = false;
+	// The previous walk in this context: its generation (its inputs are in m_context).
+	uint64_t                         m_previous_generation = 0;
 };
 
 } // namespace Libs::Graphics::ShaderRecompiler::IR

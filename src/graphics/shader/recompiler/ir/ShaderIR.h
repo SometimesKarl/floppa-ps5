@@ -539,10 +539,27 @@ struct ResourcePlan {
 		struct Entry {
 			uint64_t value      = 0;
 			uint64_t generation = 0;
+			// The inputs the value was computed from (SrtWalker dependency bits: user-data
+			// registers, buckets of guest memory words), for incremental walks.
+			uint64_t deps = 0;
 		};
 
 		std::vector<Entry> values;
 		uint64_t           generation = 0;
+		// Inputs of the latest walk (values carry `last_generation`) and of the one before
+		// (SrtWalker::KeepUnchanged); the two buffers swap so neither reallocates.
+		std::vector<uint32_t> last_user_data;
+		std::vector<uint32_t> previous_user_data;
+		uint64_t              last_shader_base     = 0;
+		uint64_t              previous_shader_base = 0;
+		uint64_t              last_generation      = 0;
+	};
+	// A guest memory word the last materialization read (through the strict reader or directly),
+	// read again before an incremental walk to find which inputs changed.
+	struct DeltaRead {
+		uint64_t address = 0;
+		uint32_t value   = 0;
+		bool     strict  = false;
 	};
 
 	ResourcePlan() = default;
@@ -578,6 +595,10 @@ struct ResourcePlan {
 	mutable std::vector<uint32_t>           pending_blocks;
 	mutable std::vector<uint32_t>           material_keys;
 	mutable std::vector<std::pair<uint64_t, uint64_t>> specialization_reads;
+	// Guest memory words the last materialization read (valid when delta_reads_valid).
+	mutable std::vector<DeltaRead>                     delta_reads;
+	mutable size_t                                     delta_full_reads  = 0;
+	mutable bool                                       delta_reads_valid = false;
 	// Set for plans extracted for draw-time evaluation (their IR no longer changes): the walker
 	// then evaluates through srt_nodes instead of re-decoding IR values at every node.
 	bool                                               srt_nodes_enabled = false;
