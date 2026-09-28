@@ -1208,10 +1208,17 @@ bool PartialUploadsEnabled() {
 	return enabled;
 }
 
-// The rows of one render-target-tiled 2D level that hold guest bytes [begin, end), widened to whole
-// groups of 128 rows: this tiling's addressing inside a block uses row bits up to 6 (and whole
-// 256-row blocks for 1-byte elements), so a band starting on such a group converts exactly like
-// the rows of the whole level. Rows are in whole blocks of the tiled layout.
+// Why a buffer-written image was uploaded whole (KYTY_UPLOAD_LOG).
+enum class PartialMiss : uint8_t { CpuDirty, LevelsLayers, Layout, Family, BandLarge, Depth, Count };
+constexpr std::array<const char*, static_cast<size_t>(PartialMiss::Count)> PartialMissNames {
+    "cpu-dirty", "mips/layers", "layout", "tiling", "band >= 3/4", "depth"};
+
+// The rows of one 64 KiB-block-tiled 2D level that hold guest bytes [begin, end), widened so a
+// band converts exactly like the same rows of the whole level (the tiler addresses inside a block
+// from the absolute row). Render-target tiling uses row bits up to 6 inside a block (and whole
+// 256-row blocks for 1-byte elements): groups of 128 rows. Standard 64 KiB tiling uses only row
+// bits below the block height for every element size (gpu_tiler_standard.inc,
+// gpu_tiler_standard64.inc): any block row. Rows are in whole blocks of the tiled layout.
 struct RowBand {
 	bool     valid       = false; // false: upload the whole level
 	uint32_t first_row   = 0;
@@ -1225,7 +1232,8 @@ struct RowBand {
 RowBand ChangedRowBand(const ImageInfo& info, const GpuTileInfo& tile, uint64_t begin, uint64_t end) {
 	RowBand         band;
 	TileBlockLayout block {};
-	if (tile.family != TileBlockFamily::RenderTarget64KB || tile.tail || tile.depth != 1 ||
+	const bool render_target = tile.family == TileBlockFamily::RenderTarget64KB;
+	if ((!render_target && tile.family != TileBlockFamily::Standard64KB) || tile.tail || tile.depth != 1 ||
 	    begin >= end || !TileGetBlockLayout(tile.family, tile.bytes_per_element, block) ||
 	    block.block_width == 0 || block.block_height == 0 || block.block_depth != 1) {
 		return band;
@@ -1247,7 +1255,7 @@ RowBand ChangedRowBand(const ImageInfo& info, const GpuTileInfo& tile, uint64_t 
 	if (first_byte >= last_byte) {
 		return band;
 	}
-	const uint64_t group    = std::max<uint64_t>(128 / block.block_height, 1);
+	const uint64_t group    = render_target ? std::max<uint64_t>(128 / block.block_height, 1) : 1;
 	const uint64_t first    = first_byte / row_bytes / group * group;
 	const uint64_t last     = std::min(((last_byte + row_bytes - 1) / row_bytes + group - 1) / group * group,
 	                                   block_rows);
@@ -1292,9 +1300,15 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 		// Only the rows GPU buffer writes changed: the rest of the image already holds what the
 		// guest memory under it does (see InitializeImage). Bytes the band covers but the writes
 		// did not are taken from memory, as a whole-image upload takes all of them.
-		if (changed_rows_only && transfer.tiles.size() == 1 && transfer.regions.size() == 1 &&
-		    !transfer.swap_bgra16 && transfer.layout.surface.texture.texel_width == 1 &&
-		    transfer.layout.surface.texture.texel_height == 1) {
+		const auto miss = [&](PartialMiss reason) { m_partial_misses[static_cast<size_t>(reason)]++; };
+		const bool simple_layout = transfer.tiles.size() == 1 && transfer.regions.size() == 1 &&
+		                           !transfer.swap_bgra16 &&
+		                           transfer.layout.surface.texture.texel_width == 1 &&
+		                           transfer.layout.surface.texture.texel_height == 1;
+		if (changed_rows_only && !simple_layout) {
+			miss(PartialMiss::Layout);
+		}
+		if (changed_rows_only && simple_layout) {
 			auto&      tile   = transfer.tiles[0];
 			auto&      region = transfer.regions[0];
 			const auto band   = ChangedRowBand(info, tile, image.BufferDirtyBegin(),
@@ -1303,8 +1317,13 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 				m_partial_upload_bytes_saved += info.data.size;
 				return;
 			}
+			const bool small_band =
+			    band.valid && static_cast<uint64_t>(band.rows) * 4 < static_cast<uint64_t>(tile.height) * 3;
+			if (!small_band) {
+				miss(band.valid ? PartialMiss::BandLarge : PartialMiss::Family);
+			}
 			// A band of most of the image is not worth the smaller dispatch.
-			if (band.valid && static_cast<uint64_t>(band.rows) * 4 < static_cast<uint64_t>(tile.height) * 3) {
+			if (small_band) {
 				const uint64_t pitch_bytes = static_cast<uint64_t>(tile.pitch) * tile.bytes_per_element;
 				tile.tiled_offset += band.first_block_row * band.row_bytes;
 				tile.tiled_size    = band.block_rows * band.row_bytes;
@@ -1452,9 +1471,15 @@ void TextureCache::InitializeImage(ImageId id) {
 					}
 					std::printf("]");
 				}
-				std::printf("; partial uploads skipped %.0f MiB\n",
+				std::printf("; partial uploads skipped %.0f MiB; buffer-written images uploaded whole:",
 				            m_partial_upload_bytes_saved / 1048576.0);
+				for (size_t r = 0; r < PartialMissNames.size(); r++) {
+					std::printf(" %s %llu", PartialMissNames[r],
+					            static_cast<unsigned long long>(m_partial_misses[r]));
+				}
+				std::printf("\n");
 				m_partial_upload_bytes_saved = 0;
+				m_partial_misses             = {};
 				uploads.clear();
 			}
 		}
@@ -1468,6 +1493,12 @@ void TextureCache::InitializeImage(ImageId id) {
 		const bool changed_rows_only = PartialUploadsEnabled() && image.IsBufferModified() &&
 		                               !image.IsCpuDirty() && image.info.resources.levels == 1 &&
 		                               image.info.resources.layers == 1 && !image.info.IsVolume();
+		if (!changed_rows_only && image.IsBufferModified()) {
+			m_partial_misses[static_cast<size_t>(
+			    image.IsCpuDirty() ? PartialMiss::CpuDirty : PartialMiss::LevelsLayers)]++;
+		} else if (changed_rows_only && image.depth_id) {
+			m_partial_misses[static_cast<size_t>(PartialMiss::Depth)]++;
+		}
 		UploadImage(image, *source, source_offset, changed_rows_only);
 		image.ClearBufferModified();
 		image.dirty_write_bytes = 0;

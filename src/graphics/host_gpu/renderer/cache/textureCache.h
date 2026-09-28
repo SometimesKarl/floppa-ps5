@@ -14,6 +14,7 @@
 #include "graphics/host_gpu/renderer/image/image.h"
 #include "graphics/host_gpu/renderer/image/tiler.h"
 
+#include <array>
 #include <map>
 #include <span>
 #include <type_traits>
@@ -262,6 +263,8 @@ private:
 	uint64_t m_gc_preserved_bytes = 0;
 	// KYTY_UPLOAD_LOG: bytes partial uploads (UploadImage changed_rows_only) did not transfer.
 	uint64_t m_partial_upload_bytes_saved = 0;
+	// KYTY_UPLOAD_LOG: why buffer-written images were uploaded whole (PartialMiss order).
+	std::array<uint64_t, 8> m_partial_misses {};
 	uint64_t m_overlap_freed = 0;
 	Common::TickHistory m_tick_history;
 	// Near the device budget (a level load outrunning the regular passes): frees images unused
