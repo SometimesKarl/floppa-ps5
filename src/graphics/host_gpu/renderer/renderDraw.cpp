@@ -549,9 +549,15 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 			             ? vk::ImageLayout::eAttachmentFeedbackLoopOptimalEXT
 			             : vk::ImageLayout::eGeneral;
 		}
-		// The attachment store writes even when guest depth/stencil tests do not.
-		const auto access = vk::AccessFlagBits2::eDepthStencilAttachmentRead |
-		                    vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+		// The attachment store writes even when guest depth/stencil tests do not, except in a
+		// read-only layout: there the store is skipped (STORE_OP_NONE, see
+		// CommandBuffer::BeginRendering) and the attachment is only read, so draws that also
+		// sample it (soft particles) need no barrier between them.
+		const auto aspects_present = ImageViewOps::DepthAspectMask(depth.desc.view_info.format);
+		const auto access = (DepthWritableAspects(layout) & aspects_present)
+		                        ? vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+		                              vk::AccessFlagBits2::eDepthStencilAttachmentWrite
+		                        : vk::AccessFlagBits2::eDepthStencilAttachmentRead;
 		image.binding.attachment_layout = layout;
 		image.binding.attachment_access = access;
 		const auto& view                = depth.desc.view_info;

@@ -126,6 +126,29 @@ Image::Barriers Image::GetBarriers(vk::ImageLayout                      destinat
 	return barriers;
 }
 
+namespace {
+
+constexpr vk::AccessFlags2 ReadOnlyAccess =
+    vk::AccessFlagBits2::eIndirectCommandRead | vk::AccessFlagBits2::eIndexRead |
+    vk::AccessFlagBits2::eVertexAttributeRead | vk::AccessFlagBits2::eUniformRead |
+    vk::AccessFlagBits2::eInputAttachmentRead | vk::AccessFlagBits2::eShaderRead |
+    vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+    vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eHostRead |
+    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eShaderSampledRead |
+    vk::AccessFlagBits2::eShaderStorageRead;
+
+// A read that needs no barrier: the image has only been read since the barrier that made its last
+// write visible, in the same layout, and that barrier's destination scope already covers this
+// read's accesses and stages (reads after reads never conflict).
+bool ReadAlreadyVisible(const VulkanImageState& current, vk::ImageLayout layout,
+                        vk::AccessFlags2 access, vk::PipelineStageFlags2 stage) {
+	return current.layout == layout && !(current.access_mask & ~ReadOnlyAccess) &&
+	       !(access & ~ReadOnlyAccess) && (current.access_mask & access) == access &&
+	       (current.pl_stage & stage) == stage;
+}
+
+} // namespace
+
 void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layout,
                            vk::AccessFlags2                     destination_access,
                            vk::PipelineStageFlags2              destination_stage,
@@ -151,11 +174,19 @@ void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layou
 		const uint32_t level_count = partial ? range->level_count : info.resources.levels;
 		const uint32_t base_layer  = partial ? range->base_layer : 0;
 		const uint32_t layer_count = partial ? range->layer_count : info.resources.layers;
+		// Subresources a read needs no barrier for keep their state, which records every stage
+		// that has read them since their last write: a later write must wait for all of those.
+		bool read_visible = false;
 		for (uint32_t level = base_level; level < base_level + level_count; level++) {
 			for (uint32_t layer = base_layer; layer < base_layer + layer_count; layer++) {
 				const auto index = level * info.resources.layers + layer;
 				EXIT_IF(index >= subresource_states.size());
 				auto& subresource_state = subresource_states[index];
+				if (ReadAlreadyVisible(subresource_state, destination_layout, destination_access,
+				                       destination_stage)) {
+					read_visible = true;
+					continue;
+				}
 
 				constexpr auto write_access = vk::AccessFlagBits2::eTransferWrite |
 				                              vk::AccessFlagBits2::eShaderWrite |
@@ -185,6 +216,14 @@ void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layou
 			}
 		}
 
+		if (read_visible) {
+			// Stay per subresource. Every subresource in the range is now in the destination
+			// layout; the whole-image state only reports that layout (descriptors use it).
+			state.layout = destination_layout;
+			state.pl_stage |= destination_stage;
+			state.access_mask |= destination_access;
+			return;
+		}
 		if (!partial) {
 			subresource_states.clear();
 		}
@@ -193,8 +232,9 @@ void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layou
 		                                vk::AccessFlagBits2::eShaderWrite |
 		                                vk::AccessFlagBits2::eMemoryWrite;
 		const bool     repeated_write = static_cast<bool>(state.access_mask & write_access);
-		if (state.layout == destination_layout && state.access_mask == destination_access &&
-		    !repeated_write) {
+		if ((state.layout == destination_layout && state.access_mask == destination_access &&
+		     !repeated_write) ||
+		    ReadAlreadyVisible(state, destination_layout, destination_access, destination_stage)) {
 			return;
 		}
 
