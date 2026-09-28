@@ -11,6 +11,7 @@
 #include "graphics/host_gpu/renderer/debug.h"
 #include "graphics/host_gpu/renderer/depthRenderTarget.h"
 #include "graphics/host_gpu/renderer/image/imageView.h"
+#include "graphics/host_gpu/renderer/pipeline/pipelinePrewarm.h"
 #include "graphics/host_gpu/renderer/pipeline/shaderPrecompile.h"
 #include "graphics/presentation/window.h"
 #include "graphics/host_gpu/renderer/render.h"
@@ -440,6 +441,7 @@ struct PipelineCache::ProgramCache {
 
 		const auto module = CompileSPV(result.spirv, device);
 		EXIT_IF(module == nullptr);
+		PipelinePrewarm::RecordModule(module, result.spirv);
 		if (CompileLogEnabled()) {
 			const auto module_end = Common::Timer::QueryPerformanceCounter();
 			std::printf("compile qpc=%" PRIu64 " stage=%s hash=%016" PRIx64
@@ -765,13 +767,37 @@ void PipelineCache::StartPrecompile() {
 	auto       records = ShaderPrecompile::Load(path, PrecompileLayoutKey());
 	// Appending keeps what earlier runs recorded; only a set that did not load is rewritten.
 	ShaderPrecompile::Open(path, PrecompileLayoutKey(), !records.empty());
-	if (records.empty()) {
-		return;
+	const char* prewarm = std::getenv("KYTY_PIPELINE_PREWARM");
+	const bool  pipelines = prewarm == nullptr || prewarm[0] != '0';
+	if (pipelines) {
+		PipelinePrewarm::Open(std::filesystem::path("_PipelineCache") / (title_id + ".pipelines"));
 	}
 	m_precompile_done.store(false, std::memory_order_release);
-	m_precompile_thread = std::jthread([this, records = std::move(records)]() mutable {
+	m_precompile_thread = std::jthread([this, pipelines, records = std::move(records)]() mutable {
 		KYTY_PROFILER_THREAD("Thread_ShaderPrecompile");
-		ReplayPrecompiled(std::move(records));
+		if (!records.empty()) {
+			ReplayPrecompiled(std::move(records));
+		}
+		if (!pipelines) {
+			return;
+		}
+		// Every pipeline earlier sessions created, created again before the guest draws: the
+		// driver cache makes most instant; what it lacks (new driver, lost cache) compiles here on
+		// all cores instead of one at a time in the middle of play.
+		const auto threads = std::max(2u, std::thread::hardware_concurrency() - 1);
+		const auto stats   = PipelinePrewarm::Replay(
+            m_graphics, m_driver_cache, threads, [](uint32_t done, uint32_t total) {
+                WindowSetStatus(fmt::format("preparing pipelines {}/{}", done, total));
+            });
+		WindowSetStatus({});
+		if (stats.total != 0) {
+			PipelineCacheLog("Pipeline prewarm: {} pipelines, {} cached, {} compiled, {} failed in "
+			                 "{:.1f} s",
+			                 stats.total, stats.cached, stats.compiled, stats.failed, stats.seconds);
+		}
+		if (stats.compiled != 0) {
+			WriteDriverCache();
+		}
 	});
 }
 
@@ -913,6 +939,7 @@ void PipelineCache::NotePipelineCreated() {
 PipelineCache::~PipelineCache() {
 	WaitForPrecompile();
 	ShaderPrecompile::Close();
+	PipelinePrewarm::Close();
 	Save();
 	auto destroy = [this](const auto& pipelines) {
 		for (const auto& [key, pipeline]: pipelines) {

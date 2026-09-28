@@ -8,6 +8,7 @@
 #include "graphics/host_gpu/renderer/debug.h"
 #include "graphics/host_gpu/renderer/pipeline/descriptors.h"
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
+#include "graphics/host_gpu/renderer/pipeline/pipelinePrewarm.h"
 #include "graphics/host_gpu/renderer/pipeline/shaderResourceBarrier.h"
 #include "graphics/host_gpu/renderer/render.h"
 #include "graphics/host_gpu/renderer/renderContext.h"
@@ -235,6 +236,9 @@ struct GraphicsPipelineBuild {
 	vk::PipelineRenderingCreateInfo              rendering_info {};
 	vk::PipelineTessellationStateCreateInfo      tessellation_state {};
 	vk::GraphicsPipelineCreateInfo               pipeline_info {};
+	std::vector<vk::DescriptorSetLayoutBinding>  layout_bindings;
+	vk::DescriptorSetLayoutCreateFlags           layout_flags {};
+	vk::PushConstantRange                        push_range {};
 };
 
 void GraphicsPipelineBuildDeleter::operator()(GraphicsPipelineBuild* build) const {
@@ -276,12 +280,14 @@ GraphicsPipelineBuildPtr PrepareGraphicsPipeline(GraphicContext& graphics,
 		const auto shaders =
 		    BuildRectListShaders(vs_input_info, ps_active ? ps_input_info : nullptr);
 		tess_control_shader_module = CompileSPV(shaders.control, graphics.device);
+		PipelinePrewarm::RecordModule(tess_control_shader_module, shaders.control);
 		if (graphics_debug_dump_enabled()) {
 			LOGF("PipelineTrace: vkCreateShaderModule RectList TCS done module=%p\n",
 			     static_cast<void*>(tess_control_shader_module));
 		}
 
 		tess_eval_shader_module = CompileSPV(shaders.evaluation, graphics.device);
+		PipelinePrewarm::RecordModule(tess_eval_shader_module, shaders.evaluation);
 		if (graphics_debug_dump_enabled()) {
 			LOGF("PipelineTrace: vkCreateShaderModule RectList TES done module=%p\n",
 			     static_cast<void*>(tess_eval_shader_module));
@@ -489,6 +495,11 @@ GraphicsPipelineBuildPtr PrepareGraphicsPipeline(GraphicContext& graphics,
 	CreateDescriptorLayout(graphics, pipeline, descriptor_bindings);
 	const vk::PushConstantRange push_constants {graphics_stages, 0,
 	                                            ShaderRecompiler::IR::NativePushConstantSize};
+	b.layout_bindings = descriptor_bindings;
+	b.layout_flags    = pipeline.uses_push_descriptors
+	                        ? vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR
+	                        : vk::DescriptorSetLayoutCreateFlags {};
+	b.push_range      = push_constants;
 
 	vk::PipelineLayoutCreateInfo pipeline_layout_info {};
 	pipeline_layout_info.setLayoutCount         = 1;
@@ -614,12 +625,17 @@ bool FinishGraphicsPipeline(GraphicContext& graphics, GraphicsPipelineBuild& bui
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
 	EXIT_NOT_IMPLEMENTED(handle == nullptr);
 	pipeline.pipeline = handle;
+	// Next session creates it again before the guest draws (see PipelinePrewarm).
+	PipelinePrewarm::RecordGraphics(build.pipeline_info, build.layout_bindings, build.layout_flags,
+	                                build.push_range);
 
 	if (build.tess_control_shader_module != nullptr) {
+		PipelinePrewarm::ForgetModule(build.tess_control_shader_module);
 		graphics.device.destroyShaderModule(build.tess_control_shader_module, nullptr);
 		build.tess_control_shader_module = nullptr;
 	}
 	if (build.tess_eval_shader_module != nullptr) {
+		PipelinePrewarm::ForgetModule(build.tess_eval_shader_module);
 		graphics.device.destroyShaderModule(build.tess_eval_shader_module, nullptr);
 		build.tess_eval_shader_module = nullptr;
 	}
@@ -630,6 +646,7 @@ bool FinishGraphicsPipeline(GraphicContext& graphics, GraphicsPipelineBuild& bui
 void DiscardGraphicsPipelineBuild(GraphicContext& graphics, GraphicsPipelineBuild& build) {
 	for (auto* module: {&build.tess_control_shader_module, &build.tess_eval_shader_module}) {
 		if (*module != nullptr) {
+			PipelinePrewarm::ForgetModule(*module);
 			graphics.device.destroyShaderModule(*module, nullptr);
 			*module = nullptr;
 		}
@@ -707,6 +724,11 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	LOGF("PipelineTrace: vkCreateComputePipelines done result=%s pipeline=%p\n",
 	     vk::to_string(result).c_str(), static_cast<void*>(pipeline.pipeline));
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
+	PipelinePrewarm::RecordCompute(comp_shader_stage_info, descriptor_bindings,
+	                               pipeline.uses_push_descriptors
+	                                   ? vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR
+	                                   : vk::DescriptorSetLayoutCreateFlags {},
+	                               push_constants);
 
 	EXIT_NOT_IMPLEMENTED(pipeline.pipeline == nullptr);
 }

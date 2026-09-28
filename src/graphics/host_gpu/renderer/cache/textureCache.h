@@ -121,6 +121,8 @@ private:
 	// Frees idle images, oldest first, and waits for the GPU so their memory is returned: used
 	// when video and system memory both refuse a new image. Returns the bytes freed.
 	uint64_t                  ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive);
+	// Whether the PC has less than 1.5 GiB of free RAM (then textures are evicted sooner).
+	[[nodiscard]] static bool SystemRamLow();
 	[[nodiscard]] ImageId     GetNullImage(const ImageDesc& desc);
 	void                      RegisterImage(ImageId id);
 	void                      UnregisterImage(ImageId id);
@@ -215,7 +217,9 @@ private:
 	Common::TickHistory m_tick_history;
 	// Over the device budget (a level load outrunning the regular passes): frees every image
 	// unused for 5 s, and GPU-written tiled images unused for 30 s. Caller holds m_lock.
-	void EmergencyCollect(uint64_t tick);
+	// `critical`: video memory is (almost) full or system RAM is low; images unused for a second
+	// go instead of five.
+	void EmergencyCollect(uint64_t tick, bool critical);
 	uint64_t                                          m_trigger_gc_memory  = 0;
 	uint64_t                                          m_pressure_gc_memory = 1536ull * 1024 * 1024;
 	uint64_t         m_critical_gc_memory     = 3ull * 1024 * 1024 * 1024;

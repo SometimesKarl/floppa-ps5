@@ -317,6 +317,26 @@ void TextureCache::UnregisterImage(ImageId id) {
 	image.registered = false;
 }
 
+bool TextureCache::SystemRamLow() {
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	// Sampled at most every half second; GlobalMemoryStatusEx is a system call.
+	static auto last = std::chrono::steady_clock::time_point {};
+	static bool low  = false;
+	const auto  now  = std::chrono::steady_clock::now();
+	if (now - last >= std::chrono::milliseconds(500)) {
+		last = now;
+		MEMORYSTATUSEX status {};
+		status.dwLength = sizeof(status);
+		if (GlobalMemoryStatusEx(&status) != 0) {
+			low = status.ullAvailPhys < 1536ull * 1024 * 1024;
+		}
+	}
+	return low;
+#else
+	return false;
+#endif
+}
+
 uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive) {
 	KYTY_PROFILER_FUNCTION();
 	const auto current = m_scheduler.CurrentTick();
@@ -2310,9 +2330,9 @@ void TextureCache::UnmapMemory(uint64_t address, uint64_t size) {
 	}
 }
 
-void TextureCache::EmergencyCollect(uint64_t tick) {
-	const auto idle_tick  = m_tick_history.TickSecondsAgo(5.0);
-	const auto stale_tick = m_tick_history.TickSecondsAgo(10.0);
+void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
+	const auto idle_tick  = m_tick_history.TickSecondsAgo(critical ? 1.0 : 5.0);
+	const auto stale_tick = m_tick_history.TickSecondsAgo(critical ? 5.0 : 10.0);
 	if (idle_tick == 0) {
 		return;
 	}
@@ -2435,11 +2455,18 @@ void TextureCache::RunGarbageCollector() {
 	if (m_total_used_memory >= m_critical_gc_memory) {
 		collect(true);
 	}
-	// Start before the budget is reached: a level load allocates gigabytes within seconds (8 GB
-	// cards ran out loading ASTRO BOT's Sky Garden while this waited for the budget itself).
-	if (m_graphics.CanReportMemoryUsage() &&
-	    m_total_used_memory + 768ull * 1024 * 1024 >= m_graphics.GetTotalMemoryBudget()) {
-		EmergencyCollect(tick);
+	// Video memory must never reach the budget: past it Windows pages GPU memory to and from
+	// system RAM every frame (ASTRO BOT's Sky Garden fell to 4 FPS with the GPU idle, then the
+	// PC ran out of RAM and froze). Collect from a headroom below it, harder when close to it or
+	// when the PC itself is short of RAM.
+	if (m_graphics.CanReportMemoryUsage()) {
+		constexpr uint64_t MiB      = 1024ull * 1024;
+		const auto         budget   = m_graphics.GetTotalMemoryBudget();
+		const auto         headroom = std::max<uint64_t>(896 * MiB, budget / 8);
+		const bool         ram_low  = SystemRamLow();
+		if (ram_low || m_total_used_memory + headroom >= budget) {
+			EmergencyCollect(tick, ram_low || m_total_used_memory + 384 * MiB >= budget);
+		}
 	}
 	static const bool print_stats = std::getenv("KYTY_MEMORY_STATS") != nullptr;
 	if (print_stats) {
@@ -2466,6 +2493,44 @@ void TextureCache::RunGarbageCollector() {
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
 			            m_gc_freed, m_gc_kept, m_gc_emergency_freed, m_overlap_freed);
+			// How recently the cached images were used, and by what kind: what an eviction under
+			// video-memory pressure could free without touching this second's working set.
+			const std::array<double, 4> ages {1.0, 5.0, 30.0, 1e9};
+			std::array<uint64_t, 4>     cpu_bytes {}, gpu_bytes {};
+			std::unordered_map<uint32_t, uint64_t>   format_bytes;
+			std::unordered_map<uint64_t, uint32_t>   per_address;
+			m_slot_images.ForEach([&](ImageId, const Image& image) {
+				if (!image.registered) {
+					return;
+				}
+				const auto tick = m_lru_cache.TickOf(image.lru_id);
+				size_t     slot = 0;
+				while (slot + 1 < ages.size()) {
+					const auto since = m_tick_history.TickSecondsAgo(ages[slot]);
+					if (since == 0 || tick >= since) {
+						break;
+					}
+					slot++;
+				}
+				(image.IsGpuModified() ? gpu_bytes : cpu_bytes)[slot] += image.AccountedSize();
+				format_bytes[static_cast<uint32_t>(image.info.pixel_format)] += image.AccountedSize();
+				per_address[image.info.data.address]++;
+			});
+			uint32_t shared_addresses = 0;
+			for (const auto& [address, count]: per_address) {
+				shared_addresses += count > 1 ? 1u : 0u;
+			}
+			std::vector<std::pair<uint32_t, uint64_t>> formats(format_bytes.begin(), format_bytes.end());
+			std::ranges::sort(formats, [](const auto& a, const auto& b) { return a.second > b.second; });
+			std::printf("TextureCache ages (MiB, used <1s/<5s/<30s/older): guest-backed %.0f/%.0f/%.0f/%.0f, "
+			            "GPU-written %.0f/%.0f/%.0f/%.0f; %u addresses with several images; top formats:",
+			            cpu_bytes[0] / 1048576.0, cpu_bytes[1] / 1048576.0, cpu_bytes[2] / 1048576.0,
+			            cpu_bytes[3] / 1048576.0, gpu_bytes[0] / 1048576.0, gpu_bytes[1] / 1048576.0,
+			            gpu_bytes[2] / 1048576.0, gpu_bytes[3] / 1048576.0, shared_addresses);
+			for (size_t i = 0; i < formats.size() && i < 5; i++) {
+				std::printf(" %u:%.0f", formats[i].first, formats[i].second / 1048576.0);
+			}
+			std::printf("\n");
 			std::fflush(stdout);
 			m_gc_freed           = 0;
 			m_gc_kept            = 0;

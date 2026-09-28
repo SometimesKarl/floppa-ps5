@@ -14,6 +14,7 @@
 #include "kernel/pthread.h"
 #include "libs/errno.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -50,6 +51,16 @@ uint64_t ReadReferenceClock() {
 	if (!ScaleReferenceClock(host_ticks, host_frequency, value)) {
 		EXIT("cannot scale host clock, ticks=0x%016" PRIx64 " frequency=%" PRIu64 "\n", host_ticks,
 		     host_frequency);
+	}
+	// Experiment: stretch the GPU timestamps the title measures its GPU time with, to see how its
+	// dynamic resolution responds (above 1: the GPU looks slower, the title renders fewer pixels).
+	static const double scale = [] {
+		const char* value = std::getenv("KYTY_GPU_TIME_SCALE");
+		return value != nullptr ? std::strtod(value, nullptr) : 1.0;
+	}();
+	if (scale != 1.0 && scale > 0.0) {
+		static const uint64_t base = value;
+		value = base + static_cast<uint64_t>(static_cast<double>(value - base) * scale);
 	}
 	return value;
 }
