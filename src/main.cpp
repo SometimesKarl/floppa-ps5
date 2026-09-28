@@ -6,9 +6,12 @@
 #include "common/threads.h"
 #include "common/virtualMemory.h"
 #include "emulator.h"
+#include "graphics/host_gpu/renderer/resolutionControl.h"
 #include "kytyGitVersion.h"
 
 #include <charconv>
+#include <cstdlib>
+#include <fstream>
 #include <cstdio>
 #include <string_view>
 #include <vector>
@@ -387,6 +390,47 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 	return show_help || (!options.app0_dir.empty() && !options.elf.empty());
 }
 
+// emulator-settings.ini in the working directory (the emulator's folder), one key=value per line;
+// '#' starts a comment. Environment variables override it.
+static void ApplyEmulatorSettings() {
+	std::string resolution = "auto";
+	if (std::ifstream file("emulator-settings.ini"); file) {
+		std::string line;
+		while (std::getline(file, line)) {
+			if (const auto hash = line.find('#'); hash != std::string::npos) {
+				line.resize(hash);
+			}
+			const auto equals = line.find('=');
+			if (equals == std::string::npos) {
+				continue;
+			}
+			auto trim = [](std::string text) {
+				const auto begin = text.find_first_not_of(" \t\r");
+				const auto end   = text.find_last_not_of(" \t\r");
+				return begin == std::string::npos ? std::string {} : text.substr(begin, end - begin + 1);
+			};
+			if (trim(line.substr(0, equals)) == "render_resolution") {
+				resolution = trim(line.substr(equals + 1));
+			}
+		}
+	}
+	if (const char* value = std::getenv("KYTY_RENDER_RESOLUTION"); value != nullptr) {
+		resolution = value;
+	}
+	uint32_t width = 0;
+	if (resolution == "1080p") {
+		width = 1920;
+	} else if (resolution == "1440p") {
+		width = 2560;
+	} else if (resolution == "2160p" || resolution == "4k") {
+		width = 3840;
+	} else if (resolution != "auto" && !resolution.empty()) {
+		::printf("emulator-settings.ini: unknown render_resolution '%s' (auto, 1080p, 1440p, 2160p)\n",
+		         resolution.c_str());
+	}
+	Libs::Graphics::ResolutionControl::Configure(width);
+}
+
 static int Main(int argc, char* argv[]) {
 	VirtualMemory::Init();
 	InitializeThreads();
@@ -409,6 +453,7 @@ static int Main(int argc, char* argv[]) {
 		return 0;
 	}
 
+	ApplyEmulatorSettings();
 	Run(options);
 
 	return 0;

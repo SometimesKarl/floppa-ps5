@@ -1,5 +1,6 @@
 #include "graphics/host_gpu/renderer/sync.h"
 #include "graphics/host_gpu/renderer/renderStats.h"
+#include "graphics/host_gpu/renderer/resolutionControl.h"
 
 #include "common/assert.h"
 #include "common/common.h"
@@ -52,17 +53,8 @@ uint64_t ReadReferenceClock() {
 		EXIT("cannot scale host clock, ticks=0x%016" PRIx64 " frequency=%" PRIu64 "\n", host_ticks,
 		     host_frequency);
 	}
-	// Experiment: stretch the GPU timestamps the title measures its GPU time with, to see how its
-	// dynamic resolution responds (above 1: the GPU looks slower, the title renders fewer pixels).
-	static const double scale = [] {
-		const char* value = std::getenv("KYTY_GPU_TIME_SCALE");
-		return value != nullptr ? std::strtod(value, nullptr) : 1.0;
-	}();
-	if (scale != 1.0 && scale > 0.0) {
-		static const uint64_t base = value;
-		value = base + static_cast<uint64_t>(static_cast<double>(value - base) * scale);
-	}
-	return value;
+	// Titles size their dynamic resolution from these timestamps (see ResolutionControl).
+	return ResolutionControl::Adjust(value);
 }
 
 enum class EndOfPipeWriteSize : uint32_t { Dword = 4, Qword = 8 };
@@ -178,6 +170,7 @@ uint64_t PrepareVideoOutFlip(CommandBuffer& buffer, int handle, int index, int f
 		if (result == OK) {
 			EXIT_IF(request_id == 0);
 			RenderStats::Count(RenderStats::g_guest_frames);
+			ResolutionControl::EndGuestFrame();
 			return request_id;
 		}
 		if (result != VideoOut::VIDEO_OUT_ERROR_FLIP_QUEUE_FULL) {
