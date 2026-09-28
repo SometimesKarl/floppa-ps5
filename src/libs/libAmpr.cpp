@@ -216,13 +216,17 @@ static int ResolveOnePath(const char* guest_path, uint32_t* id, uint64_t* size) 
 		info.file_id         = AprShared::ComputeFileId(guest_path);
 		info.host_path       = Common::PathToString(real_path);
 
-		if (Common::File::IsDirectoryExisting(real_path)) {
+		// One file-system query per new path: on a hard disk with loose game files (Demon's
+		// Souls), three per path kept job workers in file-system calls during loads.
+		bool     is_dir = false;
+		uint64_t bytes  = 0;
+		if (!Common::File::Query(real_path, &is_dir, &bytes)) {
+			info.result = LibKernel::KERNEL_ERROR_ENOENT;
+		} else if (is_dir) {
 			info.is_dir    = true;
 			info.file_size = 0x10000;
-		} else if (Common::File::IsFileExisting(real_path)) {
-			info.file_size = Common::File::Size(real_path);
 		} else {
-			info.result = LibKernel::KERNEL_ERROR_ENOENT;
+			info.file_size = bytes;
 		}
 
 		bool log_missing = false;

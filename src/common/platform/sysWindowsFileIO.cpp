@@ -426,6 +426,20 @@ bool SysFileIsFileExisting(const std::filesystem::path& name) {
 	       ((a & static_cast<DWORD>(FILE_ATTRIBUTE_DIRECTORY)) == 0u);
 }
 
+bool SysFileQuery(const std::filesystem::path& name, bool* is_dir, uint64_t* size) {
+	WIN32_FILE_ATTRIBUTE_DATA a;
+	auto                      wide = name.wstring();
+	if (GetFileAttributesExW(wide.c_str(), GetFileExInfoStandard, &a) == 0) {
+		return false;
+	}
+	LARGE_INTEGER s;
+	s.HighPart = static_cast<LONG>(a.nFileSizeHigh);
+	s.LowPart  = a.nFileSizeLow;
+	*is_dir    = (a.dwFileAttributes & static_cast<DWORD>(FILE_ATTRIBUTE_DIRECTORY)) != 0u;
+	*size      = static_cast<uint64_t>(s.QuadPart);
+	return true;
+}
+
 bool SysFileCreateDirectory(const std::filesystem::path& path) {
 	auto wide = path.wstring();
 	return CreateDirectoryW(wide.c_str(), nullptr) != 0;

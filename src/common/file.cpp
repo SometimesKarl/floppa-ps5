@@ -264,6 +264,18 @@ bool File::IsFileExisting(const std::filesystem::path& name) {
 	return SysFileIsFileExisting(name);
 }
 
+bool File::Query(const std::filesystem::path& path, bool* is_dir, uint64_t* size) {
+	const auto stripped = WithoutTrailingSeparator(path);
+	bool       dir      = false;
+	uint64_t   bytes    = 0;
+	if (!SysFileQuery(stripped, &dir, &bytes) || (!dir && stripped != path)) {
+		return false;
+	}
+	*is_dir = dir;
+	*size   = dir ? 0 : bytes;
+	return true;
+}
+
 bool File::CreateDirectory(const std::filesystem::path& path) {
     return SysFileCreateDirectory(
         WithoutTrailingSeparator(path));

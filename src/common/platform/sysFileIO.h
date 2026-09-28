@@ -48,6 +48,8 @@ uint64_t    SysFileSize(const std::filesystem::path& file_name);
 bool        SysFileIsError(sys_file_t& f); // NOLINT(google-runtime-references)
 bool        SysFileIsDirectoryExisting(const std::filesystem::path& path);
 bool        SysFileIsFileExisting(const std::filesystem::path& name);
+// Existence, kind and size in one file-system query (false: does not exist).
+bool        SysFileQuery(const std::filesystem::path& name, bool* is_dir, uint64_t* size);
 bool        SysFileCreateDirectory(const std::filesystem::path& path);
 bool        SysFileDeleteDirectory(const std::filesystem::path& path);
 bool        SysFileDeleteFile(const std::filesystem::path& name);

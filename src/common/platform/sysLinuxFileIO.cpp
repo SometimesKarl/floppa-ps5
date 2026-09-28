@@ -378,6 +378,20 @@ bool SysFileIsFileExisting(const std::filesystem::path& name) {
 	return !S_ISDIR(s.st_mode); // NOLINT
 }
 
+bool SysFileQuery(const std::filesystem::path& name, bool* is_dir, uint64_t* size) {
+	auto real_name     = get_internal_name(name);
+	auto real_name_str = real_name.string();
+
+	struct stat s {};
+
+	if (0 != stat(real_name_str.c_str(), &s)) {
+		return false;
+	}
+	*is_dir = S_ISDIR(s.st_mode); // NOLINT
+	*size   = static_cast<uint64_t>(s.st_size);
+	return true;
+}
+
 bool SysFileCreateDirectory(const std::filesystem::path& path) {
 	auto real_name     = get_internal_name(path);
 	auto real_name_str = real_name.string();

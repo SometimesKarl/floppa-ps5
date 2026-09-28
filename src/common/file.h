@@ -75,6 +75,9 @@ public:
 
 	static bool IsDirectoryExisting(const std::filesystem::path& path);
 	static bool IsFileExisting(const std::filesystem::path& name);
+	// Existence, kind and size (0 for a directory) in one file-system query; a trailing
+	// separator names only a directory, as with IsDirectoryExisting / IsFileExisting.
+	static bool Query(const std::filesystem::path& path, bool* is_dir, uint64_t* size);
 	static bool CreateDirectory(const std::filesystem::path& path);
 	static bool CreateDirectories(const std::filesystem::path& path);
 	static bool DeleteDirectory(const std::filesystem::path& path);
