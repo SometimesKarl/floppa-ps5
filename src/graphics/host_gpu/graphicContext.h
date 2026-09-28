@@ -108,6 +108,8 @@ struct GraphicContext {
 	enum class AllocationKind : uint32_t { Image, DeviceLocal, Upload, Download, Stream, Count };
 	// Tracks live bytes per kind and memory type; call with added=false before freeing.
 	void AccountAllocation(AllocationKind kind, VmaAllocation allocation, bool added) const;
+	// Bytes the allocation occupies (0 for none).
+	[[nodiscard]] uint64_t AllocationSize(VmaAllocation allocation) const;
 	[[nodiscard]] bool CanReportMemoryUsage() const noexcept { return memory_budget_ext_enabled; }
 	[[nodiscard]] uint64_t GetDeviceMemoryUsage() const;
 	[[nodiscard]] uint64_t GetTotalMemoryBudget() const;

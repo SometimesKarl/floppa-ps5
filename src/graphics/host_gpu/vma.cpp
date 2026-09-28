@@ -112,6 +112,15 @@ void GraphicContext::AccountAllocation(AllocationKind kind, VmaAllocation alloca
 	counters.count[info.memoryType].fetch_add(sign, std::memory_order_relaxed);
 }
 
+uint64_t GraphicContext::AllocationSize(VmaAllocation allocation) const {
+	if (allocator == nullptr || allocation == nullptr) {
+		return 0;
+	}
+	VmaAllocationInfo info {};
+	vmaGetAllocationInfo(allocator, allocation, &info);
+	return info.size;
+}
+
 void GraphicContext::PrintMemoryStatistics() const {
 	if (allocator == nullptr) {
 		return;

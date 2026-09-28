@@ -2627,6 +2627,43 @@ void TextureCache::RunGarbageCollector() {
 				std::printf(" %u:%.0f", formats[i].first, formats[i].second / 1048576.0);
 			}
 			std::printf("\n");
+			// Video memory the images really occupy next to their guest size (format expansion,
+			// padding, extra mips), and slots still alive after unregistration.
+			struct HostUse {
+				uint64_t count = 0, guest = 0, host = 0;
+			};
+			std::unordered_map<uint32_t, HostUse> host_use;
+			HostUse                               total_use, unregistered;
+			m_slot_images.ForEach([&](ImageId, const Image& image) {
+				const auto host = m_graphics.AllocationSize(image.backing.allocation);
+				if (!image.registered) {
+					unregistered.count++;
+					unregistered.host += host;
+					return;
+				}
+				for (auto* use: {&host_use[static_cast<uint32_t>(image.backing.format)], &total_use}) {
+					use->count++;
+					use->guest += image.info.data.size;
+					use->host += host;
+				}
+			});
+			std::vector<std::pair<uint32_t, HostUse>> uses(host_use.begin(), host_use.end());
+			std::ranges::sort(uses, [](const auto& a, const auto& b) {
+				return a.second.host - std::min(a.second.host, a.second.guest) >
+				       b.second.host - std::min(b.second.host, b.second.guest);
+			});
+			std::printf("TextureCache host memory: registered %.0f MiB for %.0f MiB of guest data; "
+			            "%llu unregistered slots %.0f MiB; largest overheads (format:count guest->host "
+			            "MiB):",
+			            total_use.host / 1048576.0, total_use.guest / 1048576.0,
+			            static_cast<unsigned long long>(unregistered.count),
+			            unregistered.host / 1048576.0);
+			for (size_t i = 0; i < uses.size() && i < 6; i++) {
+				std::printf(" %u:%llu %.0f->%.0f", uses[i].first,
+				            static_cast<unsigned long long>(uses[i].second.count),
+				            uses[i].second.guest / 1048576.0, uses[i].second.host / 1048576.0);
+			}
+			std::printf("\n");
 			std::fflush(stdout);
 			m_gc_freed           = 0;
 			m_gc_kept            = 0;
