@@ -875,17 +875,11 @@ bool SrtWalker::NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result)
 
 bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result) {
 	auto& nodes = m_program.srt_nodes;
-	// Sized once to every evaluation index: decoding operands then writes entries in place and
-	// never grows the table, so references into it stay valid while operands are evaluated (a
-	// copy of the node per evaluation was a measurable share of the walk).
-	if (nodes.size() < m_program.evaluation_value_count) {
-		nodes.resize(m_program.evaluation_value_count);
-	}
 	if (index >= nodes.size() || nodes[index].kind == 0) {
 		DecodeNode(index, inst);
 	}
-	EXIT_IF(index >= nodes.size());
-	const SrtNode& node = nodes[index];
+	// A copy: evaluating operands can decode more nodes and grow the table.
+	const SrtNode node = nodes[index];
 	if (node.kind != 1) {
 		return EvaluateInst(inst, result);
 	}
@@ -895,7 +889,7 @@ bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result)
 	const auto arg     = [&](uint32_t operand, uint64_t& out) { return NodeArg(node, operand, out); };
 	const auto binary  = [&]() { return arg(0, a) && arg(1, b); };
 	const auto ternary = [&]() { return arg(0, a) && arg(1, b) && arg(2, c); };
-	const auto source  = [&](uint32_t operand) -> const SrtNode& {
+	const auto source  = [&](uint32_t operand) {
 		const auto source_index = static_cast<uint32_t>(node.args[operand]);
 		if (m_program.srt_nodes[source_index].kind == 0) {
 			DecodeNode(source_index, *m_program.srt_nodes[source_index].inst);
