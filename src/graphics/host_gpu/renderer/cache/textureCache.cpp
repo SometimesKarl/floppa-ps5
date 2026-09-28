@@ -28,9 +28,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <span>
+#include <string>
+#include <string_view>
 #include <tuple>
+#include <fmt/format.h>
 #include <vulkan/vulkan_format_traits.hpp>
 
 namespace Libs::Graphics {
@@ -248,8 +252,43 @@ bool TextureCache::SafeToDownload(const Image& image) {
 	return !m_buffer_cache.HasGpuDirtyBytes(range.address, range.size);
 }
 
-ImageId TextureCache::InsertImage(const ImageInfo& info, ImageId protect) {
+namespace {
+
+// KYTY_IMAGE_CHURN_LOG=1: which code paths create and delete large images (>= 16 MiB) again and
+// again, per image address, every 10 s.
+void NoteImageChurn(const char* what, const ImageInfo& info, std::source_location where) {
+	static const bool enabled = std::getenv("KYTY_IMAGE_CHURN_LOG") != nullptr;
+	if (!enabled || info.data.size < 16ull * 1024 * 1024) {
+		return;
+	}
+	static std::mutex                            mutex;
+	static std::map<std::string, uint64_t>       counts;
+	static auto                                  last = std::chrono::steady_clock::now();
+	std::scoped_lock                             lock {mutex};
+	std::string_view                             file = where.file_name();
+	file = file.substr(file.find_last_of("/\\") + 1);
+	counts[fmt::format("{} 0x{:x} {}x{} fmt {} @{}:{}", what, info.data.address, info.extent.width,
+	                   info.extent.height, static_cast<uint32_t>(info.pixel_format), file,
+	                   where.line())]++;
+	if (std::chrono::steady_clock::now() - last < std::chrono::seconds(10)) {
+		return;
+	}
+	last = std::chrono::steady_clock::now();
+	std::vector<std::pair<std::string, uint64_t>> top(counts.begin(), counts.end());
+	std::ranges::sort(top, [](const auto& a, const auto& b) { return a.second > b.second; });
+	std::printf("image churn in 10 s:");
+	for (size_t i = 0; i < top.size() && i < 12; i++) {
+		std::printf(" [%s x%llu]", top[i].first.c_str(), static_cast<unsigned long long>(top[i].second));
+	}
+	std::printf("\n");
+	counts.clear();
+}
+
+} // namespace
+
+ImageId TextureCache::InsertImage(const ImageInfo& info, ImageId protect, std::source_location where) {
 	KYTY_PROFILER_FUNCTION();
+	NoteImageChurn("insert", info, where);
 	auto id = m_slot_images.insert(m_graphics, m_scheduler, info);
 	// A level load can fill video memory faster than the collector frees it, and with video
 	// memory full the driver may refuse system memory too (ASTRO BOT exited loading Sky Garden).
@@ -422,12 +461,13 @@ uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bo
 	return freed;
 }
 
-void TextureCache::DeleteImage(ImageId id, bool defer_erase) {
+void TextureCache::DeleteImage(ImageId id, bool defer_erase, std::source_location where) {
 	KYTY_PROFILER_FUNCTION();
 	auto* image = m_slot_images.try_get(id);
 	if (image == nullptr || !image->registered) {
 		return;
 	}
+	NoteImageChurn("delete", image->info, where);
 	if (!image->depth_id) {
 		std::vector<ImageId> associations;
 		m_slot_images.ForEach([&](ImageId candidate, const Image& associated) {
@@ -463,12 +503,12 @@ void TextureCache::DeleteImage(ImageId id, bool defer_erase) {
 	}
 }
 
-void TextureCache::FreeImage(ImageId id) {
+void TextureCache::FreeImage(ImageId id, std::source_location where) {
 	auto& image = m_slot_images[id];
 	if (image.IsGpuModified()) {
 		image.ClearGpuModified();
 	}
-	DeleteImage(id);
+	DeleteImage(id, true, where);
 }
 
 void TextureCache::TouchImage(Image& image) {

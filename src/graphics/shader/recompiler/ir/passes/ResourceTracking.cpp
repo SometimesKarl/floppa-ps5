@@ -1111,13 +1111,16 @@ private:
 	}
 
 	static void Merge(ImageResource& image, ValueOpcode op, uint32_t pc) {
-		const auto access  = ImageOpcodeInfoOf(op).access;
+		const auto info    = ImageOpcodeInfoOf(op);
+		const auto access  = info.access;
 		const bool atomic  = access == ImageAccess::Atomic;
 		const bool write   = access == ImageAccess::Write || atomic;
 		image.first_use_pc = std::min(image.first_use_pc, pc);
 		image.read         = image.read || !write || atomic;
 		image.written      = image.written || write;
 		image.atomic       = image.atomic || atomic;
+		image.exact_texels = image.exact_texels || !info.needs_sampler ||
+		                     op == ValueOpcode::ImageQueryLod;
 	}
 
 	uint32_t AddSampler(uint32_t source, uint32_t pc) {
