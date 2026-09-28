@@ -81,6 +81,36 @@ private:
 	struct TextureTransfer;
 	struct ImageDownload;
 
+	// KYTY_UPLOAD_LOG: the operation that needed an image's guest contents (set around the
+	// lookups that can upload).
+	enum class UploadReason : uint8_t {
+		Other,
+		Texture,
+		Storage,
+		RenderTarget,
+		DepthTarget,
+		ConditionalClear,
+		PartialClear,
+		CopySource,
+		Recreate,
+		Count
+	};
+	UploadReason m_upload_reason = UploadReason::Other;
+	class UploadReasonScope {
+	public:
+		UploadReasonScope(TextureCache& cache, UploadReason reason)
+		    : m_cache(cache), m_previous(cache.m_upload_reason) {
+			cache.m_upload_reason = reason;
+		}
+		~UploadReasonScope() { m_cache.m_upload_reason = m_previous; }
+		UploadReasonScope(const UploadReasonScope&)            = delete;
+		UploadReasonScope& operator=(const UploadReasonScope&) = delete;
+
+	private:
+		TextureCache& m_cache;
+		UploadReason  m_previous;
+	};
+
 	struct MetaDataInfo {
 		enum class Type : uint8_t { CMask, FMask, HTile };
 

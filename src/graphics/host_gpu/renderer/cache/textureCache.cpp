@@ -690,7 +690,8 @@ void TextureCache::PrepareImageCopy(Image& image) {
 
 void TextureCache::RefreshCopySource(ImageId id) {
 	KYTY_PROFILER_FUNCTION();
-	auto& image = m_slot_images[id];
+	auto&             image = m_slot_images[id];
+	UploadReasonScope reason(*this, UploadReason::CopySource);
 	RefreshImage(id);
 	if (image.IsDefinitelyCpuDirty()) {
 		EXIT("TextureCache: image copy source remained CPU-dirty after refresh\n");
@@ -885,6 +886,7 @@ ImageId TextureCache::ResolveDepthOverlap(const ImageInfo& requested, BindingTyp
 	if (!recreate) {
 		return cached_id;
 	}
+	UploadReasonScope reason(*this, UploadReason::Recreate);
 	RefreshImage(cached_id);
 	auto info = requested;
 	if (retain_cached_layout) {
@@ -1304,15 +1306,21 @@ void TextureCache::InitializeImage(ImageId id) {
 		static const bool log_uploads = std::getenv("KYTY_UPLOAD_LOG") != nullptr;
 		if (log_uploads) {
 			struct Entry {
-				uint64_t count = 0, bytes = 0, buffer_modified = 0;
+				uint64_t count = 0, bytes = 0, buffer_modified = 0, dirty_bytes = 0;
 				uint32_t width = 0, height = 0, format = 0, levels = 0;
+				std::array<uint32_t, static_cast<size_t>(UploadReason::Count)> reasons {};
 			};
+			static constexpr std::array<const char*, static_cast<size_t>(UploadReason::Count)>
+			    ReasonNames {"other", "tex",   "storage", "rt",     "depth",
+			                 "cclear", "pclear", "copy",   "recreate"};
 			static std::unordered_map<uint64_t, Entry> uploads;
 			static auto                                 last = std::chrono::steady_clock::now();
 			auto& e = uploads[image.info.data.address];
 			e.count++;
 			e.bytes += image.info.data.size;
 			e.buffer_modified += image.IsBufferModified() ? 1u : 0u;
+			e.dirty_bytes += std::min(image.dirty_write_bytes, image.info.data.size);
+			e.reasons[static_cast<size_t>(m_upload_reason)]++;
 			e.width  = image.info.extent.width;
 			e.height = image.info.extent.height;
 			e.format = static_cast<uint32_t>(image.info.pixel_format);
@@ -1328,10 +1336,20 @@ void TextureCache::InitializeImage(ImageId id) {
 				std::printf("uploads in 10 s: %zu images %.0f MiB; top:", top.size(), total / 1048576.0);
 				for (size_t i = 0; i < top.size() && i < 8; i++) {
 					const auto& t = top[i].second;
-					std::printf(" [0x%llx %ux%u fmt %u mips %u: %llu x, %.0f MiB, %llu from GPU-written buffers]",
+					std::printf(" [0x%llx %ux%u fmt %u mips %u: %llu x, %.0f MiB, %llu from GPU-written "
+					            "buffers covering %.0f%%; for",
 					            static_cast<unsigned long long>(top[i].first), t.width, t.height, t.format,
 					            t.levels, static_cast<unsigned long long>(t.count), t.bytes / 1048576.0,
-					            static_cast<unsigned long long>(t.buffer_modified));
+					            static_cast<unsigned long long>(t.buffer_modified),
+					            t.bytes != 0 ? 100.0 * static_cast<double>(t.dirty_bytes) /
+					                               static_cast<double>(t.bytes)
+					                         : 0.0);
+					for (size_t r = 0; r < t.reasons.size(); r++) {
+						if (t.reasons[r] != 0) {
+							std::printf(" %s %u", ReasonNames[r], t.reasons[r]);
+						}
+					}
+					std::printf("]");
 				}
 				std::printf("\n");
 				uploads.clear();
@@ -1344,6 +1362,7 @@ void TextureCache::InitializeImage(ImageId id) {
 		}
 		UploadImage(image, *source, source_offset);
 		image.ClearBufferModified();
+		image.dirty_write_bytes = 0;
 	}
 	if (image.IsCpuDirty()) {
 		image.RefreshComplete();
@@ -1546,6 +1565,7 @@ void TextureCache::ClearColorIfPredicate(CommandBuffer& command, ImageId id, vk:
 	// Whether or not a clear fires, the image is GPU-owned afterwards, so it must already hold
 	// the guest contents the skipped clear would have left in place.
 	if (image.IsBufferModified() || image.IsCpuDirty()) {
+		UploadReasonScope reason(*this, UploadReason::ConditionalClear);
 		InitializeImage(id);
 		if (image.IsBufferModified() || image.IsCpuDirty()) {
 			EXIT("TextureCache: conditional clear retained guest ownership\n");
@@ -1809,8 +1829,10 @@ ImageId TextureCache::FindImageFromRange(uint64_t address, uint64_t size, bool e
 }
 
 vk::ImageView TextureCache::FindTexture(ImageId id, const ImageDesc& desc) {
-	std::scoped_lock lock {m_lock};
-	auto&            image = m_slot_images[id];
+	std::scoped_lock  lock {m_lock};
+	UploadReasonScope reason(*this, desc.type == BindingType::Storage ? UploadReason::Storage
+	                                                                   : UploadReason::Texture);
+	auto&             image = m_slot_images[id];
 	TouchImage(image);
 	if (!image.info.data.Empty()) {
 		if (!image.registered || image.depth_id || image.binding.needs_rebind) {
@@ -1853,8 +1875,9 @@ vk::ImageView TextureCache::FindRenderTarget(ImageId id, const ImageDesc& desc) 
 	if (desc.type != BindingType::RenderTarget) {
 		EXIT("TextureCache: invalid color-target binding\n");
 	}
-	std::scoped_lock lock {m_lock};
-	auto&            image = m_slot_images[id];
+	std::scoped_lock  lock {m_lock};
+	UploadReasonScope reason(*this, UploadReason::RenderTarget);
+	auto&             image = m_slot_images[id];
 	if (!image.registered || image.depth_id || image.binding.needs_rebind) {
 		EXIT("TextureCache: color target requires rediscovery before final acquisition\n");
 	}
@@ -1871,8 +1894,9 @@ vk::ImageView TextureCache::FindDepthTarget(ImageId id, const ImageDesc& desc) {
 	if (desc.type != BindingType::DepthTarget) {
 		EXIT("TextureCache: invalid depth-target binding\n");
 	}
-	std::scoped_lock lock {m_lock};
-	auto&            image = m_slot_images[id];
+	std::scoped_lock  lock {m_lock};
+	UploadReasonScope reason(*this, UploadReason::DepthTarget);
+	auto&             image = m_slot_images[id];
 	if (!image.registered || image.depth_id || image.binding.needs_rebind) {
 		EXIT("TextureCache: depth target requires rediscovery before final acquisition\n");
 	}
@@ -2001,6 +2025,7 @@ void TextureCache::ClearImage(CommandBuffer& command, ImageId id, vk::Format for
 	const bool full_image = range.aspectMask == aspects && full_subresources;
 	TrackImage(id);
 	if (!full_image && (image.IsBufferModified() || image.IsCpuDirty())) {
+		UploadReasonScope reason(*this, UploadReason::PartialClear);
 		InitializeImage(id);
 		if (image.info.samples == 1 && (image.IsBufferModified() || image.IsCpuDirty())) {
 			EXIT("TextureCache: image clear retained guest ownership\n");
@@ -2287,6 +2312,11 @@ void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size, uint
 		auto& image = m_slot_images[id];
 		if (!image.Overlaps(address, size)) {
 			continue;
+		}
+		if (log) {
+			const auto begin = std::max(address, image.info.data.address);
+			const auto end   = std::min(address + size, image.info.data.End());
+			image.dirty_write_bytes += end > begin ? end - begin : 0;
 		}
 		if (log && !image.IsBufferModified()) {
 			// Which writes mark images, and how much of each image they cover.

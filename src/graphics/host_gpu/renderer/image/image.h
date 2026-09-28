@@ -165,6 +165,8 @@ public:
 	// drawn every frame can miss one draw while its pipeline compiles; one drawn once cannot.
 	uint64_t         target_frame      = UINT64_MAX;
 	uint64_t         prev_target_frame = UINT64_MAX;
+	// KYTY_UPLOAD_LOG: bytes of this image GPU buffer writes overlapped since its last upload.
+	uint64_t         dirty_write_bytes = 0;
 	uint64_t         lru_touch_tick     = UINT64_MAX;
 	size_t           lru_id             = 0;
 	// A view outside the view-format list was needed; the texture cache recreates the image
