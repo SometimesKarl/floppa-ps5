@@ -19,28 +19,7 @@ std::atomic<bool>            g_fast_evaluation {true};
 thread_local SrtReadObserver     t_read_observer      = nullptr;
 thread_local SrtUserDataObserver t_user_data_observer = nullptr;
 thread_local void*               t_read_context       = nullptr;
-// Dependency bits gathered by the value being evaluated (EvaluateIndex frames), and the list
-// guest memory reads go to (SrtWalker::RecordReads).
-thread_local uint64_t                               t_deps        = 0;
-thread_local std::vector<ResourcePlan::DeltaRead>* t_delta_reads = nullptr;
-
-// Bits 0-47: user-data registers (47 also stands for every higher one); 48-62: buckets of guest
-// memory words.
-constexpr uint32_t UserDataBits     = 48;
-constexpr uint32_t MemoryBuckets    = 15;
-constexpr uint64_t UserDataBit(uint32_t index) {
-	return uint64_t {1} << std::min(index, UserDataBits - 1);
-}
 } // namespace
-
-uint64_t SrtWalker::MemoryBit(uint64_t address) {
-	const auto word = static_cast<uint32_t>(address >> 2u) * 0x9e3779b1u;
-	return uint64_t {1} << (UserDataBits + (word >> 16u) % MemoryBuckets);
-}
-
-void SrtWalker::RecordReads(std::vector<ResourcePlan::DeltaRead>* reads) {
-	t_delta_reads = reads;
-}
 
 void SetSrtFastEvaluation(bool enabled) {
 	g_fast_evaluation.store(enabled, std::memory_order_relaxed);
@@ -515,47 +494,7 @@ SrtWalker::SrtWalker(const ResourcePlan& program, const SrtRuntime& runtime,
     : m_program(program), m_runtime(runtime), m_clean_flat_slots(clean_flat_slots),
       m_clean_evaluator(clean_evaluator), m_active_mask(active_mask.Resolve()),
       m_context(AcquireContext(program)),
-      m_fast(program.srt_nodes_enabled && m_active_mask.IsEmpty() && SrtFastEvaluation()) {
-	// This walk becomes the context's latest; the one before stays available to KeepUnchanged.
-	m_previous_generation = m_context.last_generation;
-	std::swap(m_context.previous_user_data, m_context.last_user_data);
-	m_context.previous_shader_base = m_context.last_shader_base;
-	m_context.last_user_data.assign(runtime.user_data.begin(), runtime.user_data.end());
-	m_context.last_shader_base = runtime.shader_base;
-	m_context.last_generation  = m_context.generation;
-}
-
-void SrtWalker::KeepUnchanged(uint64_t changed) {
-	if (m_previous_generation == 0 || !m_fast || !m_active_mask.IsEmpty() ||
-	    m_context.previous_shader_base != m_runtime.shader_base ||
-	    m_context.previous_user_data.size() != m_runtime.user_data.size()) {
-		return;
-	}
-	for (size_t i = 0; i < m_runtime.user_data.size(); i++) {
-		if (m_context.previous_user_data[i] != m_runtime.user_data[i]) {
-			changed |= UserDataBit(static_cast<uint32_t>(i));
-		}
-	}
-	for (auto& entry: m_context.values) {
-		if (entry.generation == m_previous_generation && (entry.deps & changed) == 0) {
-			entry.generation = m_context.generation;
-		}
-	}
-}
-
-bool SrtWalker::ReadAgain(const ResourcePlan::DeltaRead& read, const SrtRuntime& clean_runtime,
-                          uint32_t& value) {
-	// The same readers as ReadRaw: the clean walker's strict reader, or the direct one.
-	if (read.strict) {
-		return clean_runtime.read_memory != nullptr &&
-		       clean_runtime.read_memory(clean_runtime.userdata, read.address, {&value, 1});
-	}
-	const auto direct = g_direct_reader.load(std::memory_order_acquire);
-	if (direct == nullptr || !direct(read.address, &value, sizeof(value))) {
-		std::memcpy(&value, reinterpret_cast<const void*>(read.address), sizeof(value));
-	}
-	return true;
-}
+      m_fast(program.srt_nodes_enabled && m_active_mask.IsEmpty() && SrtFastEvaluation()) {}
 
 SrtWalker::~SrtWalker() { --m_program.evaluation_depth; }
 
@@ -611,7 +550,6 @@ bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result
 	}
 	if (m_context.values[index].generation == m_context.generation) {
 		result = m_context.values[index].value;
-		t_deps |= m_context.values[index].deps;
 		return true;
 	}
 	// The low generation bit marks an instruction that is still being evaluated.
@@ -619,13 +557,8 @@ bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result
 		return false;
 	}
 	m_context.values[index].generation = m_context.generation | 1u;
-	// This value's own dependency bits: its operands' (and reads') bits gather in t_deps.
-	const auto outer_deps = t_deps;
-	t_deps                = 0;
 	uint64_t out = 0;
 	const bool evaluated = m_fast ? EvaluateNode(index, inst, out) : EvaluateInst(inst, out);
-	const auto deps      = t_deps;
-	t_deps               = outer_deps | deps;
 	// Recursive evaluation may grow the dense memo vector.
 	auto& memo = m_context.values[index];
 	if (!evaluated) {
@@ -634,7 +567,6 @@ bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result
 	}
 	memo.value      = out;
 	memo.generation = m_context.generation;
-	memo.deps       = deps;
 	result = out;
 	return true;
 }
@@ -755,11 +687,6 @@ bool SrtWalker::ReadRaw(const MemoryInfo& mem, bool constant_buffer, uint64_t lo
 		if (t_read_observer != nullptr) {
 			t_read_observer(t_read_context, address, word);
 		}
-	}
-	t_deps |= MemoryBit(address);
-	if (t_delta_reads != nullptr) {
-		t_delta_reads->push_back({.address = address, .value = word,
-		                          .strict = m_runtime.read_memory != nullptr});
 	}
 	result = word;
 	return true;
@@ -975,7 +902,6 @@ bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result)
 				return false;
 			}
 			result = m_runtime.user_data[node.aux];
-			t_deps |= UserDataBit(node.aux);
 			if (t_user_data_observer != nullptr) {
 				t_user_data_observer(t_read_context, node.aux, static_cast<uint32_t>(result));
 			}
@@ -1256,7 +1182,6 @@ bool SrtWalker::EvaluateInst(const Inst& inst, uint64_t& result) {
 				return false;
 			}
 			result = m_runtime.user_data[reg - m_program.user_data_base];
-			t_deps |= UserDataBit(reg - m_program.user_data_base);
 			if (t_user_data_observer != nullptr) {
 				t_user_data_observer(t_read_context, reg - m_program.user_data_base,
 				                     static_cast<uint32_t>(result));
