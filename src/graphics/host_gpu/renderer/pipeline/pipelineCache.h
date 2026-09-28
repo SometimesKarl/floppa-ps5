@@ -159,6 +159,9 @@ public:
 	// Blocks until the shader permutations recorded by earlier runs are translated again
 	// (started at construction on its own thread); the guest's first shader lookup waits here.
 	void WaitForPrecompile();
+	// GPU command thread, now and then: clears the window-title notice of NoteCompile once no
+	// pipeline has been compiled for 2 s.
+	void UpdateCompileNotice();
 
 private:
 	struct ProgramCache;
@@ -252,6 +255,13 @@ private:
 	// Called after each new pipeline: saves in the background at most once a minute, so a crash
 	// or a killed process no longer loses every pipeline compiled in the session.
 	void NotePipelineCreated();
+	// A pipeline the driver had to compile on the GPU command thread (not a driver-cache hit):
+	// from the third in a row the window title says a new area's shaders are compiling, so a
+	// first visit's wait does not look like a hang.
+	void NoteCompile(uint64_t qpc_ticks);
+	uint32_t m_notice_compiles = 0;
+	uint64_t m_notice_last_qpc = 0;
+	bool     m_notice_shown    = false;
 };
 
 void LogPipelineTrace(const char* phase, uint64_t vertex_program_id, uint64_t pixel_program_id);

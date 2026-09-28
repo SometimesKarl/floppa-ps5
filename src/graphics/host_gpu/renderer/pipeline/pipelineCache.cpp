@@ -951,6 +951,36 @@ void PipelineCache::NotePipelineCreated() {
 	});
 }
 
+void PipelineCache::NoteCompile(uint64_t qpc_ticks) {
+	// A driver-cache hit takes well under a millisecond; this title's first compiles 0.1-3 s.
+	if (qpc_ticks < Common::Timer::QueryPerformanceFrequency() / 20 ||
+	    !m_precompile_done.load(std::memory_order_acquire)) {
+		return;
+	}
+	m_notice_compiles++;
+	m_notice_last_qpc = Common::Timer::QueryPerformanceCounter();
+	if (m_notice_compiles >= 3) {
+		m_notice_shown = true;
+		WindowSetStatus(fmt::format("compiling shaders for a new area ({}), only the first time",
+		                            m_notice_compiles));
+	}
+}
+
+void PipelineCache::UpdateCompileNotice() {
+	if (m_notice_compiles == 0) {
+		return;
+	}
+	const auto now = Common::Timer::QueryPerformanceCounter();
+	if (now - m_notice_last_qpc < Common::Timer::QueryPerformanceFrequency() * 2) {
+		return;
+	}
+	m_notice_compiles = 0;
+	if (m_notice_shown) {
+		m_notice_shown = false;
+		WindowSetStatus({});
+	}
+}
+
 PipelineCache::~PipelineCache() {
 	WaitForPrecompile();
 	ShaderPrecompile::Close();
@@ -1420,6 +1450,9 @@ PipelineCache::Pipeline& PipelineCache::GetGraphicsPipeline(
 	}
 	LogPipelineTrace("CreatePipelineInternal done", vs_id, ps_id);
 	NotePipelineCreated();
+	if (!deferred) {
+		NoteCompile(Common::Timer::QueryPerformanceCounter() - create_begin);
+	}
 
 	EXIT_NOT_IMPLEMENTED(!deferred && cached->pipeline == nullptr);
 	EXIT_NOT_IMPLEMENTED(cached->pipeline_layout == nullptr);
@@ -1459,6 +1492,7 @@ PipelineCache::GetComputePipeline(const ShaderComputeInputInfo& input_info,
 		            m_compute_pipelines.size() + 1);
 	}
 	NotePipelineCreated();
+	NoteCompile(Common::Timer::QueryPerformanceCounter() - create_begin);
 
 	EXIT_NOT_IMPLEMENTED(cached->pipeline == nullptr);
 	EXIT_NOT_IMPLEMENTED(cached->pipeline_layout == nullptr);
