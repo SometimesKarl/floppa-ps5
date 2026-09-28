@@ -204,7 +204,11 @@ private:
 	[[nodiscard]] TextureTransfer
 	BuildTextureTransfer(const Image& image, BindingType binding, TransferDirection direction) const;
 	[[nodiscard]] ImageDownload BuildDownload(const Image& image) const;
-	void UploadImage(Image& image, Buffer& source, uint64_t source_offset);
+	// changed_rows_only: the image already holds its guest contents except where GPU buffer writes
+	// changed them (its buffer-dirty range); only the rows those bytes lie in are uploaded when the
+	// layout allows it.
+	void UploadImage(Image& image, Buffer& source, uint64_t source_offset,
+	                 bool changed_rows_only = false);
 	void DownloadImage(Image& image, Buffer& destination, uint64_t destination_offset,
 	                       uint64_t destination_size, ImageDownload transfer);
 	void DownloadDepth(Image& image, Buffer& destination, uint64_t destination_offset);
@@ -256,6 +260,8 @@ private:
 	uint64_t m_gc_kept  = 0;
 	uint64_t m_gc_emergency_freed = 0;
 	uint64_t m_gc_preserved_bytes = 0;
+	// KYTY_UPLOAD_LOG: bytes partial uploads (UploadImage changed_rows_only) did not transfer.
+	uint64_t m_partial_upload_bytes_saved = 0;
 	uint64_t m_overlap_freed = 0;
 	Common::TickHistory m_tick_history;
 	// Near the device budget (a level load outrunning the regular passes): frees images unused

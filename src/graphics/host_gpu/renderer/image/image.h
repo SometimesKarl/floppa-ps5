@@ -7,6 +7,7 @@
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/image/imageInfo.h"
 
+#include <algorithm>
 #include <array>
 #include <compare>
 #include <limits>
@@ -133,8 +134,26 @@ public:
 	void               ClearGpuModified() noexcept { m_gpu_modified = false; }
 
 	[[nodiscard]] bool IsBufferModified() const noexcept { return m_buffer_modified; }
-	void               MarkBufferModified() noexcept { m_buffer_modified = true; }
-	void               ClearBufferModified() noexcept { m_buffer_modified = false; }
+	// GPU buffer writes changed guest bytes of the image, which ones unknown.
+	void MarkBufferModified() noexcept {
+		m_buffer_modified    = true;
+		m_buffer_dirty_begin = 0;
+		m_buffer_dirty_end   = UINT64_MAX;
+	}
+	// GPU buffer writes changed the image's guest bytes [begin, end) (guest addresses); marks
+	// accumulate into one covering range until the image is refreshed.
+	void MarkBufferModified(uint64_t begin, uint64_t end) noexcept {
+		m_buffer_dirty_begin = m_buffer_modified ? std::min(m_buffer_dirty_begin, begin) : begin;
+		m_buffer_dirty_end   = m_buffer_modified ? std::max(m_buffer_dirty_end, end) : end;
+		m_buffer_modified    = true;
+	}
+	void ClearBufferModified() noexcept {
+		m_buffer_modified    = false;
+		m_buffer_dirty_begin = UINT64_MAX;
+		m_buffer_dirty_end   = 0;
+	}
+	[[nodiscard]] uint64_t BufferDirtyBegin() const noexcept { return m_buffer_dirty_begin; }
+	[[nodiscard]] uint64_t BufferDirtyEnd() const noexcept { return m_buffer_dirty_end; }
 
 	[[nodiscard]] bool Overlaps(uint64_t address, uint64_t size,
 	                            bool pages = false) const noexcept {
@@ -192,6 +211,8 @@ private:
 	bool              m_maybe_hash_valid = false;
 	bool              m_gpu_modified     = false;
 	bool              m_buffer_modified  = false;
+	uint64_t          m_buffer_dirty_begin = UINT64_MAX;
+	uint64_t          m_buffer_dirty_end   = 0;
 };
 
 namespace ImageOps {

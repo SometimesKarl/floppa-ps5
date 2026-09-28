@@ -1195,7 +1195,76 @@ TextureCache::ImageDownload TextureCache::BuildDownload(const Image& image) cons
 	return transfer;
 }
 
-void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_offset) {
+namespace {
+
+// KYTY_PARTIAL_UPLOADS=0: always upload whole images.
+bool PartialUploadsEnabled() {
+	static const bool enabled = [] {
+		const char* value = std::getenv("KYTY_PARTIAL_UPLOADS");
+		return value == nullptr || value[0] != '0';
+	}();
+	return enabled;
+}
+
+// The rows of one render-target-tiled 2D level that hold guest bytes [begin, end), widened to whole
+// groups of 128 rows: this tiling's addressing inside a block uses row bits up to 6 (and whole
+// 256-row blocks for 1-byte elements), so a band starting on such a group converts exactly like
+// the rows of the whole level. Rows are in whole blocks of the tiled layout.
+struct RowBand {
+	bool     valid       = false; // false: upload the whole level
+	uint32_t first_row   = 0;
+	uint32_t rows        = 0;     // 0: the bytes lie in padding, nothing to upload
+	uint64_t first_block_row = 0;
+	uint64_t block_rows  = 0;
+	uint64_t row_bytes   = 0;     // bytes of one row of blocks
+	uint32_t block_height = 0;
+};
+
+RowBand ChangedRowBand(const ImageInfo& info, const GpuTileInfo& tile, uint64_t begin, uint64_t end) {
+	RowBand         band;
+	TileBlockLayout block {};
+	if (tile.family != TileBlockFamily::RenderTarget64KB || tile.tail || tile.depth != 1 ||
+	    begin >= end || !TileGetBlockLayout(tile.family, tile.bytes_per_element, block) ||
+	    block.block_width == 0 || block.block_height == 0 || block.block_depth != 1) {
+		return band;
+	}
+	const uint64_t tiled_width  = tile.tiled_width != 0 ? tile.tiled_width : tile.pitch;
+	const uint64_t tiled_height = tile.tiled_height != 0 ? tile.tiled_height : tile.height;
+	const uint64_t columns      = (tiled_width + block.block_width - 1) / block.block_width;
+	const uint64_t block_rows   = (tiled_height + block.block_height - 1) / block.block_height;
+	const uint64_t row_bytes    = columns * block.block_size;
+	const uint64_t base         = info.data.address + tile.tiled_offset;
+	if (row_bytes == 0 || block_rows * row_bytes > tile.tiled_size) {
+		return band;
+	}
+	band.valid        = true;
+	band.row_bytes    = row_bytes;
+	band.block_height = block.block_height;
+	const uint64_t first_byte = begin > base ? begin - base : 0;
+	const uint64_t last_byte  = end > base ? std::min(end - base, block_rows * row_bytes) : 0;
+	if (first_byte >= last_byte) {
+		return band;
+	}
+	const uint64_t group    = std::max<uint64_t>(128 / block.block_height, 1);
+	const uint64_t first    = first_byte / row_bytes / group * group;
+	const uint64_t last     = std::min(((last_byte + row_bytes - 1) / row_bytes + group - 1) / group * group,
+	                                   block_rows);
+	const uint64_t first_row = first * block.block_height;
+	const uint64_t last_row  = std::min<uint64_t>(last * block.block_height, tile.height);
+	if (first_row >= last_row) {
+		return band;
+	}
+	band.first_block_row = first;
+	band.block_rows      = last - first;
+	band.first_row       = static_cast<uint32_t>(first_row);
+	band.rows            = static_cast<uint32_t>(last_row - first_row);
+	return band;
+}
+
+} // namespace
+
+void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_offset,
+                               bool changed_rows_only) {
 	auto& destination = image.depth_id ? m_slot_images[image.depth_id] : image;
 	const auto binding = image.depth_id ? BindingType::DepthTarget : UploadBinding(image);
 	const auto  upload  = [&](std::vector<vk::BufferImageCopy>& copies, TileManager::Result linear) {
@@ -1217,6 +1286,36 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 			     static_cast<uint32_t>(transfer.layout.surface.texture.block.family), info.extent.width,
 			     info.extent.height, info.extent.depth, info.pitch, info.resources.levels,
 			     info.resources.layers, info.samples);
+		}
+		// Only the rows GPU buffer writes changed: the rest of the image already holds what the
+		// guest memory under it does (see InitializeImage). Bytes the band covers but the writes
+		// did not are taken from memory, as a whole-image upload takes all of them.
+		if (changed_rows_only && transfer.tiles.size() == 1 && transfer.regions.size() == 1 &&
+		    !transfer.swap_bgra16 && transfer.layout.surface.texture.texel_width == 1 &&
+		    transfer.layout.surface.texture.texel_height == 1) {
+			auto&      tile   = transfer.tiles[0];
+			auto&      region = transfer.regions[0];
+			const auto band   = ChangedRowBand(info, tile, image.BufferDirtyBegin(),
+			                                   image.BufferDirtyEnd());
+			if (band.valid && band.rows == 0) {
+				m_partial_upload_bytes_saved += info.data.size;
+				return;
+			}
+			// A band of most of the image is not worth the smaller dispatch.
+			if (band.valid && static_cast<uint64_t>(band.rows) * 4 < static_cast<uint64_t>(tile.height) * 3) {
+				const uint64_t pitch_bytes = static_cast<uint64_t>(tile.pitch) * tile.bytes_per_element;
+				tile.tiled_offset += band.first_block_row * band.row_bytes;
+				tile.tiled_size    = band.block_rows * band.row_bytes;
+				tile.tiled_height  = static_cast<uint32_t>(band.block_rows * band.block_height);
+				tile.height        = band.rows;
+				tile.linear_offset = 0;
+				tile.linear_size   = pitch_bytes * band.rows;
+				region.bufferOffset       = 0;
+				region.bufferImageHeight  = band.rows;
+				region.imageOffset.y     += static_cast<int32_t>(band.first_row);
+				region.imageExtent.height = band.rows;
+				m_partial_upload_bytes_saved += info.data.size - tile.tiled_size;
+			}
 		}
 		TileManager::Result linear {source.Handle(), source_offset, info.data.size};
 		if (!transfer.tiles.empty()) {
@@ -1351,7 +1450,9 @@ void TextureCache::InitializeImage(ImageId id) {
 					}
 					std::printf("]");
 				}
-				std::printf("\n");
+				std::printf("; partial uploads skipped %.0f MiB\n",
+				            m_partial_upload_bytes_saved / 1048576.0);
+				m_partial_upload_bytes_saved = 0;
 				uploads.clear();
 			}
 		}
@@ -1360,7 +1461,12 @@ void TextureCache::InitializeImage(ImageId id) {
 		if (source == nullptr) {
 			EXIT("TextureCache: failed to obtain image upload source\n");
 		}
-		UploadImage(image, *source, source_offset);
+		// Not CPU-written since its last upload: only buffer-written bytes are stale (a new image
+		// starts CPU-dirty, so its first upload is whole).
+		const bool changed_rows_only = PartialUploadsEnabled() && image.IsBufferModified() &&
+		                               !image.IsCpuDirty() && image.info.resources.levels == 1 &&
+		                               image.info.resources.layers == 1 && !image.info.IsVolume();
+		UploadImage(image, *source, source_offset, changed_rows_only);
 		image.ClearBufferModified();
 		image.dirty_write_bytes = 0;
 	}
@@ -2349,7 +2455,8 @@ void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size, uint
 		if (image.IsGpuModified()) {
 			image.ClearGpuModified();
 		}
-		image.MarkBufferModified();
+		image.MarkBufferModified(std::max(address, image.info.data.address),
+		                         std::min(address + size, image.info.data.End()));
 	}
 }
 
