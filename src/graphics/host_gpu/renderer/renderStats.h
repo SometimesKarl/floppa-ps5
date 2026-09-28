@@ -1,6 +1,7 @@
 #ifndef EMULATOR_SRC_GRAPHICS_HOST_GPU_RENDERER_RENDERSTATS_H_
 #define EMULATOR_SRC_GRAPHICS_HOST_GPU_RENDERER_RENDERSTATS_H_
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
@@ -19,6 +20,9 @@ inline std::atomic<uint64_t> g_redundant_global {0};  // ... with no draw/dispat
 inline std::atomic<uint64_t> g_image_barriers {0};    // Image::Transit barrier batches
 inline std::atomic<uint64_t> g_draws {0};             // guest draws recorded
 inline std::atomic<uint64_t> g_dispatches {0};        // guest dispatches recorded
+// Recorded draws by size: indirect (GPU-written counts), then direct ones by vertices x instances:
+// <= 6, <= 64, <= 1024, <= 65536, more.
+inline std::array<std::atomic<uint64_t>, 6> g_draw_sizes {};
 // Guest flips submitted from the GPU command stream: the frame count render targets are dated by.
 inline std::atomic<uint64_t> g_guest_frames {0};
 

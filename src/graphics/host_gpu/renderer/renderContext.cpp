@@ -175,6 +175,14 @@ void RenderContext::RunGarbageCollector() {
 				                                                 RenderStats::g_target_sizes.end());
 				RenderStats::g_target_sizes.clear();
 				std::ranges::sort(sizes, [](const auto& a, const auto& b) { return a.second > b.second; });
+				std::printf("GPU stats: draws per second: indirect %.0f, direct by vertices x instances "
+				            "<=6 %.0f <=64 %.0f <=1024 %.0f <=65536 %.0f larger %.0f\n",
+				            take(RenderStats::g_draw_sizes[0]) / seconds,
+				            take(RenderStats::g_draw_sizes[1]) / seconds,
+				            take(RenderStats::g_draw_sizes[2]) / seconds,
+				            take(RenderStats::g_draw_sizes[3]) / seconds,
+				            take(RenderStats::g_draw_sizes[4]) / seconds,
+				            take(RenderStats::g_draw_sizes[5]) / seconds);
 				std::printf("GPU stats: color targets by binds:");
 				for (size_t i = 0; i < sizes.size() && i < 6; i++) {
 					std::printf(" %ux%u %.0f/s", static_cast<uint32_t>(sizes[i].first >> 32u),

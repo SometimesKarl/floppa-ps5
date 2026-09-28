@@ -1217,6 +1217,17 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	m_context.GetCommandScheduler().BeginRendering(rendering);
 	vk_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.pipeline);
 	RenderStats::Count(RenderStats::g_draws);
+	if (RenderStats::Enabled()) {
+		const uint64_t size = static_cast<uint64_t>(draw.index_count) *
+		                      std::max<uint64_t>(draw.instance_count, 1);
+		const size_t bucket = emit.gpu_args != 0 ? 0
+		                      : size <= 6       ? 1
+		                      : size <= 64      ? 2
+		                      : size <= 1024    ? 3
+		                      : size <= 65536   ? 4
+		                                        : 5;
+		RenderStats::Count(RenderStats::g_draw_sizes[bucket]);
+	}
 	if (!draw.IsIndexed()) {
 		SetDrawDebugPhase(buffer, submit_id, draw, 0x500u);
 	}
