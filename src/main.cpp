@@ -7,6 +7,7 @@
 #include "common/virtualMemory.h"
 #include "emulator.h"
 #include "graphics/host_gpu/renderer/resolutionControl.h"
+#include "graphics/presentation/videoOut.h"
 #include "kytyGitVersion.h"
 
 #include <charconv>
@@ -394,6 +395,7 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 // '#' starts a comment. Environment variables override it.
 static void ApplyEmulatorSettings() {
 	std::string resolution = "auto";
+	std::string frame_cap  = "off";
 	if (std::ifstream file("emulator-settings.ini"); file) {
 		std::string line;
 		while (std::getline(file, line)) {
@@ -409,14 +411,28 @@ static void ApplyEmulatorSettings() {
 				const auto end   = text.find_last_not_of(" \t\r");
 				return begin == std::string::npos ? std::string {} : text.substr(begin, end - begin + 1);
 			};
-			if (trim(line.substr(0, equals)) == "render_resolution") {
+			const auto key = trim(line.substr(0, equals));
+			if (key == "render_resolution") {
 				resolution = trim(line.substr(equals + 1));
+			} else if (key == "frame_cap") {
+				frame_cap = trim(line.substr(equals + 1));
 			}
 		}
 	}
 	if (const char* value = std::getenv("KYTY_RENDER_RESOLUTION"); value != nullptr) {
 		resolution = value;
 	}
+	if (const char* value = std::getenv("KYTY_FRAME_CAP"); value != nullptr) {
+		frame_cap = value;
+	}
+	uint32_t cap = 0;
+	if (frame_cap == "30" || frame_cap == "20") {
+		cap = static_cast<uint32_t>(std::stoul(frame_cap));
+		::printf("Frame cap: %u FPS, every frame shown for the same time\n", cap);
+	} else if (frame_cap != "off" && !frame_cap.empty()) {
+		::printf("emulator-settings.ini: unknown frame_cap '%s' (off, 30, 20)\n", frame_cap.c_str());
+	}
+	Libs::VideoOut::VideoOutSetFrameCap(cap);
 	uint32_t width = 0;
 	if (resolution == "1080p") {
 		width = 1920;

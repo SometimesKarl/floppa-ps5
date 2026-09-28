@@ -49,6 +49,10 @@ private:
 [[nodiscard]] VideoOutDriver& VideoOutInit(uint32_t width, uint32_t height,
                                            Graphics::Presenter& presenter);
 void                          VideoOutShutdown();
+// emulator-settings.ini frame_cap (0 = off): flips complete only on vblanks on a steady cadence of
+// at most `fps` frames per second, as when the title itself sets a lower flip rate. With the
+// default 60 Hz vblank, 30 and 20 give even frame times (2 and 3 vblanks per frame).
+void                          VideoOutSetFrameCap(uint32_t fps);
 
 KYTY_SYSV_ABI int  VideoOutOpen(int user_id, int bus_type, int index, const void* param);
 KYTY_SYSV_ABI int  VideoOutClose(int handle);

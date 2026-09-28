@@ -499,11 +499,26 @@ static int DeleteVideoOutEvent(int handle, EventQueue::KernelEqueue eq, VideoOut
 	return result == LibKernel::KERNEL_ERROR_ENOENT ? OK : result;
 }
 
+// Set once at boot (VideoOutSetFrameCap); 0 = off.
+static std::atomic<uint32_t> g_frame_cap_fps {0};
+
+// Vblanks per flip the frame cap asks for (1 = no cap).
+static int FrameCapInterval() {
+	const auto fps = g_frame_cap_fps.load(std::memory_order_relaxed);
+	if (fps == 0) {
+		return 1;
+	}
+	const auto refresh = std::max(Config::GetVblankFrequency(), 1u);
+	return static_cast<int>(std::max((refresh + fps - 1) / fps, 1u));
+}
+
 static bool IsFlipDueLocked(const VideoOutConfig& cfg, uint64_t generation) {
 	if (!cfg.opened || cfg.closing || cfg.generation != generation) {
 		return false;
 	}
-	const int interval = cfg.flip_rate + 1;
+	// A frame cap holds a flip to vblanks on its cadence: the title sees it complete later, as
+	// when its own frame runs long, and every frame stays on screen equally long.
+	const int interval = std::max(cfg.flip_rate + 1, FrameCapInterval());
 
 	return interval <= 1 || (cfg.vblank_status.count % static_cast<uint64_t>(interval)) == 0;
 }
@@ -633,6 +648,10 @@ VideoOutDriver& VideoOutInit(uint32_t width, uint32_t height, Graphics::Presente
 
 void VideoOutShutdown() {
 	g_video_out_driver.reset();
+}
+
+void VideoOutSetFrameCap(uint32_t fps) {
+	g_frame_cap_fps.store(fps, std::memory_order_relaxed);
 }
 
 VideoOutDriver::Impl::~Impl() {
