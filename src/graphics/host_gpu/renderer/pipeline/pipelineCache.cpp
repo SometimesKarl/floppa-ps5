@@ -297,15 +297,40 @@ struct PipelineCache::ProgramCache {
 		capture.values->push_back(value);
 	}
 
+	// KYTY_SRT_MEMO_STATS: the first input that differs from a memo of the same shader (a user-data
+	// register, or guest memory), for the report of why walks are not reused.
+	struct MemoMismatch {
+		bool     memory    = false;
+		uint32_t user_data = 0;
+	};
+
+	static bool UserDataStillValid(const MaterializeMemo& memo, std::span<const uint32_t> user_data,
+	                               MemoMismatch* mismatch = nullptr) {
+		for (const auto& read: memo.reads) {
+			if (read.kind == ReadKind::UserData &&
+			    (read.address >= user_data.size() ||
+			     user_data[read.address] != memo.values[read.first_value])) {
+				if (mismatch != nullptr) {
+					*mismatch = {.memory = false, .user_data = static_cast<uint32_t>(read.address)};
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+
 	static bool MemoStillValid(const MaterializeMemo& memo, std::span<const uint32_t> user_data) {
 		thread_local std::vector<uint32_t> scratch;
+		// User data first: comparing registers is cheap, re-reading guest memory is not, and most
+		// memos that fail do so on a register (a per-draw pointer).
+		if (!UserDataStillValid(memo, user_data)) {
+			return false;
+		}
 		for (const auto& read: memo.reads) {
 			if (read.kind == ReadKind::UserData) {
-				if (read.address >= user_data.size() ||
-				    user_data[read.address] != memo.values[read.first_value]) {
-					return false;
-				}
-			} else if (read.kind == ReadKind::Strict) {
+				continue;
+			}
+			if (read.kind == ReadKind::Strict) {
 				scratch.resize(read.count);
 				const bool ok = ReadShaderGuestMemory(nullptr, read.address, scratch);
 				if (ok != read.ok || (ok && !std::equal(scratch.begin(), scratch.end(),
@@ -352,6 +377,31 @@ struct PipelineCache::ProgramCache {
 			return;
 		}
 		++misses;
+		static std::unordered_map<uint32_t, uint64_t> user_data_misses;
+		static uint64_t                               memory_misses = 0;
+		static uint64_t                               first_misses  = 0;
+		static uint64_t                               memo_reads    = 0;
+		if (stats) {
+			// Against the most recently used memo of this shader: why it no longer applies.
+			const MaterializeMemo* recent = nullptr;
+			for (const auto& memo: entry.memo) {
+				if (memo.valid && memo.shader_base == shader_base &&
+				    memo.user_data_count == user_data.size() &&
+				    (recent == nullptr || memo.last_use > recent->last_use)) {
+					recent = &memo;
+				}
+			}
+			MemoMismatch mismatch;
+			if (recent == nullptr) {
+				first_misses++;
+			} else if (!UserDataStillValid(*recent, user_data, &mismatch)) {
+				user_data_misses[mismatch.user_data]++;
+				memo_reads += recent->reads.size();
+			} else {
+				memory_misses++;
+				memo_reads += recent->reads.size();
+			}
+		}
 		auto& slot = *std::ranges::min_element(entry.memo, {}, [](const MaterializeMemo& memo) {
 			return memo.valid ? memo.last_use : 0;
 		});
@@ -379,7 +429,22 @@ struct PipelineCache::ProgramCache {
 		entry.current_memo  = static_cast<int>(&slot - entry.memo.data());
 		if (stats && std::chrono::steady_clock::now() - printed > std::chrono::seconds(30)) {
 			printed = std::chrono::steady_clock::now();
-			std::printf("SRT memo: %" PRIu64 " hits, %" PRIu64 " misses\n", hits, misses);
+			std::vector<std::pair<uint32_t, uint64_t>> top(user_data_misses.begin(),
+			                                               user_data_misses.end());
+			std::ranges::sort(top, [](const auto& a, const auto& b) { return a.second > b.second; });
+			const auto compared = misses - first_misses;
+			std::printf("SRT memo: %" PRIu64 " hits, %" PRIu64 " misses (%" PRIu64
+			            " first of their shader, %" PRIu64 " guest memory changed, %.0f reads per "
+			            "memo); user-data registers that changed:",
+			            hits, misses, first_misses, memory_misses,
+			            compared != 0 ? static_cast<double>(memo_reads) / static_cast<double>(compared)
+			                          : 0.0);
+			for (size_t i = 0; i < top.size() && i < 6; i++) {
+				std::printf(" s%u %" PRIu64, top[i].first, top[i].second);
+			}
+			std::printf("\n");
+			hits = misses = first_misses = memory_misses = memo_reads = 0;
+			user_data_misses.clear();
 		}
 	}
 
