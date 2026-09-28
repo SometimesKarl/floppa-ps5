@@ -1474,6 +1474,7 @@ void TextureCache::InitializeImage(ImageId id) {
 		if (log_uploads) {
 			struct Entry {
 				uint64_t count = 0, bytes = 0, buffer_modified = 0, dirty_bytes = 0;
+				uint64_t cpu_dirty = 0, dirty_64ths = 0;
 				uint32_t width = 0, height = 0, format = 0, levels = 0;
 				std::array<uint32_t, static_cast<size_t>(UploadReason::Count)> reasons {};
 			};
@@ -1487,6 +1488,8 @@ void TextureCache::InitializeImage(ImageId id) {
 			e.bytes += image.info.data.size;
 			e.buffer_modified += image.IsBufferModified() ? 1u : 0u;
 			e.dirty_bytes += std::min(image.dirty_write_bytes, image.info.data.size);
+			e.cpu_dirty += image.IsCpuDirty() ? 1u : 0u;
+			e.dirty_64ths += image.IsBufferModified() ? std::popcount(image.BufferDirtyBands()) : 0;
 			e.reasons[static_cast<size_t>(m_upload_reason)]++;
 			e.width  = image.info.extent.width;
 			e.height = image.info.extent.height;
@@ -1516,6 +1519,12 @@ void TextureCache::InitializeImage(ImageId id) {
 							std::printf(" %s %u", ReasonNames[r], t.reasons[r]);
 						}
 					}
+					// Why whole: CPU-dirty uploads, and how many 64ths buffer writes marked.
+					std::printf("; cpu-dirty %llu, changed 64ths %.1f",
+					            static_cast<unsigned long long>(t.cpu_dirty),
+					            t.buffer_modified != 0 ? static_cast<double>(t.dirty_64ths) /
+					                                         static_cast<double>(t.buffer_modified)
+					                                   : 0.0);
 					std::printf("]");
 				}
 				std::printf("; partial uploads skipped %.0f MiB; buffer-written images uploaded whole:",

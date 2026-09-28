@@ -477,8 +477,21 @@ private:
 		}
 
 		std::lock_guard lock(m_mutex);
-		const auto      end     = vaddr + size;
-		auto            current = vaddr;
+		const auto      end = vaddr + size;
+		// Most transfers (shader resource reads, buffer uploads: several per draw) lie in one
+		// mapping: one lookup instead of one per pass.
+		{
+			MapEntry entry {};
+			if (FindContainingUnlocked(vaddr, size, &entry)) {
+				const auto offset = entry.backing_offset + vaddr - entry.vaddr;
+				if (!RangeOk(offset, size)) {
+					return false;
+				}
+				transfer(m_backing_base + offset, 0, static_cast<size_t>(size));
+				return true;
+			}
+		}
+		auto current = vaddr;
 		while (current < end) {
 			MapEntry entry {};
 			if (!FindContainingUnlocked(current, 1, &entry)) {
