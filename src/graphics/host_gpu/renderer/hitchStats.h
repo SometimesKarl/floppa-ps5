@@ -17,6 +17,7 @@ enum class Category : uint32_t {
 	GpuWait,
 	GuestIdle,
 	FlipQueueWait,
+	RingWait,
 	Count,
 };
 
@@ -37,7 +38,8 @@ public:
 
 private:
 	Category m_category;
-	uint64_t m_begin = 0;
+	uint64_t m_begin    = 0;
+	bool     m_active   = false;
 };
 
 } // namespace Libs::Graphics::HitchStats

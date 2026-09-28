@@ -35,7 +35,11 @@ struct Summary {
 Summary g_summary;
 
 constexpr std::array<const char*, static_cast<size_t>(Category::Count)> Names {
-    "shader", "pipeline", "texture", "buffer", "gpu-wait", "guest-idle", "flip-wait"};
+    "shader", "pipeline", "texture", "buffer", "gpu-wait", "guest-idle", "flip-wait", "ring-wait"};
+
+// Time of the scopes nested in each open scope, so every scope is charged its own time only
+// (a GPU wait inside a texture upload is a GPU wait).
+thread_local std::array<uint64_t, 16> g_child_ticks {};
 
 double Ms(uint64_t ticks) {
 	return static_cast<double>(ticks) * 1000.0 /
@@ -67,14 +71,23 @@ void CountTexture(uint64_t bytes) {
 }
 
 Scope::Scope(Category category): m_category(category) {
-	if (g_bound && Enabled() && g_frame.depth++ == 0) {
-		m_begin = Common::Timer::QueryPerformanceCounter();
+	if (g_bound && Enabled() && g_frame.depth < g_child_ticks.size()) {
+		m_active                        = true;
+		g_child_ticks[g_frame.depth++] = 0;
+		m_begin                         = Common::Timer::QueryPerformanceCounter();
 	}
 }
 
 Scope::~Scope() {
-	if (g_bound && Enabled() && --g_frame.depth == 0 && m_begin != 0) {
-		Add(m_category, Common::Timer::QueryPerformanceCounter() - m_begin);
+	if (!m_active) {
+		return;
+	}
+	const auto elapsed = Common::Timer::QueryPerformanceCounter() - m_begin;
+	const auto depth   = --g_frame.depth;
+	const auto nested  = g_child_ticks[depth];
+	Add(m_category, elapsed > nested ? elapsed - nested : 0);
+	if (depth > 0) {
+		g_child_ticks[depth - 1] += elapsed;
 	}
 }
 

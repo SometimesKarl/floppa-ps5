@@ -318,26 +318,6 @@ void TextureCache::UnregisterImage(ImageId id) {
 	image.registered = false;
 }
 
-bool TextureCache::SystemRamLow() {
-#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
-	// Sampled at most every half second; GlobalMemoryStatusEx is a system call.
-	static auto last = std::chrono::steady_clock::time_point {};
-	static bool low  = false;
-	const auto  now  = std::chrono::steady_clock::now();
-	if (now - last >= std::chrono::milliseconds(500)) {
-		last = now;
-		MEMORYSTATUSEX status {};
-		status.dwLength = sizeof(status);
-		if (GlobalMemoryStatusEx(&status) != 0) {
-			low = status.ullAvailPhys < 1536ull * 1024 * 1024;
-		}
-	}
-	return low;
-#else
-	return false;
-#endif
-}
-
 uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive) {
 	KYTY_PROFILER_FUNCTION();
 	const auto current = m_scheduler.CurrentTick();
@@ -2527,15 +2507,15 @@ void TextureCache::RunGarbageCollector() {
 	}
 	// Video memory must never reach the budget: past it Windows pages GPU memory to and from
 	// system RAM every frame (ASTRO BOT's Sky Garden fell to 4 FPS with the GPU idle, then the
-	// PC ran out of RAM and froze). Collect from a headroom below it, harder when close to it or
-	// when the PC itself is short of RAM.
+	// PC ran out of RAM and froze). Collect from a headroom below it, harder when close to it.
+	// (Low system RAM is no reason: evicting video memory frees no RAM, and evicting textures
+	// still in use made the game re-upload 8 GiB in 10 s at 2 FPS.)
 	if (m_graphics.CanReportMemoryUsage()) {
 		constexpr uint64_t MiB      = 1024ull * 1024;
 		const auto         budget   = m_graphics.GetTotalMemoryBudget();
 		const auto         headroom = std::max<uint64_t>(896 * MiB, budget / 8);
-		const bool         ram_low  = SystemRamLow();
-		if (ram_low || m_total_used_memory + headroom >= budget) {
-			EmergencyCollect(tick, ram_low || m_total_used_memory + 384 * MiB >= budget);
+		if (m_total_used_memory + headroom >= budget) {
+			EmergencyCollect(tick, m_total_used_memory + 384 * MiB >= budget);
 		}
 	}
 	static const bool print_stats = std::getenv("KYTY_MEMORY_STATS") != nullptr;

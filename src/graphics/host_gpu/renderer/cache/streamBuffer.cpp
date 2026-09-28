@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/cache/streamBuffer.h"
+#include "graphics/host_gpu/renderer/hitchStats.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -400,6 +401,7 @@ bool StreamBuffer::WaitPendingOperations(const std::vector<Watch>& watches,
 		if (!Scheduler().IsFree(watch.tick) && !allow_wait) {
 			return false;
 		}
+		HitchStats::Scope hitch(HitchStats::Category::RingWait);
 		switch (Usage()) {
 			case MemoryUsage::Upload: {
 				KYTY_PROFILER_BLOCK("StreamBuffer reuse wait: Upload");
