@@ -264,7 +264,16 @@ struct PipelineCache::ProgramCache {
 		bool                                        skip_dispatch = false;
 		std::array<MaterializeMemo, MemoSlots>      memo;
 		int                                         current_memo = -1;
+		// See MaterializeCached: memo misses in a row, and walks left to run without the memo.
+		uint32_t                                    memo_misses_in_row = 0;
+		uint32_t                                    memo_bypass        = 0;
 	};
+	// A shader whose memo keeps missing (a per-draw pointer in its user data: ASTRO BOT's
+	// particle draws, ~90% misses) pays for recording every read of each walk and for trying to
+	// validate old memos, for nothing. After MemoMissBackoff misses in a row its next
+	// MemoBypassWalks walks run without the memo; then the memo is tried again.
+	static constexpr uint32_t MemoMissBackoff = 16;
+	static constexpr uint32_t MemoBypassWalks = 256;
 
 	struct MemoCapture {
 		std::vector<MaterializeRead>* reads  = nullptr;
@@ -357,8 +366,23 @@ struct PipelineCache::ProgramCache {
 		static const bool stats   = std::getenv("KYTY_SRT_MEMO_STATS") != nullptr;
 		static uint64_t   hits    = 0;
 		static uint64_t   misses  = 0;
+		static uint64_t   bypassed = 0;
 		static auto       printed = std::chrono::steady_clock::now();
 		++memo_clock;
+		if (entry.memo_bypass > 0) {
+			entry.memo_bypass--;
+			++bypassed;
+			const ShaderRecompiler::IR::SrtRuntime runtime {
+			    .user_data                  = user_data,
+			    .shader_base                = shader_base,
+			    .read_specialization_memory = ReadShaderGuestMemory,
+			};
+			EXIT_IF(!ShaderRecompiler::IR::MaterializeResources(
+			    entry.resource_plan, runtime, entry.resources, entry.specialization));
+			// The resources no longer come from a memo slot.
+			entry.current_memo = -1;
+			return;
+		}
 		for (size_t i = 0; i < entry.memo.size(); i++) {
 			auto& memo = entry.memo[i];
 			if (!memo.valid || memo.shader_base != shader_base ||
@@ -372,11 +396,16 @@ struct PipelineCache::ProgramCache {
 			}
 			// Bindings read the draw's own user data (shader constants) from the snapshot.
 			entry.resources.user_data.assign(user_data.begin(), user_data.end());
-			memo.last_use = memo_clock;
+			memo.last_use            = memo_clock;
+			entry.memo_misses_in_row = 0;
 			++hits;
 			return;
 		}
 		++misses;
+		if (++entry.memo_misses_in_row >= MemoMissBackoff) {
+			entry.memo_misses_in_row = 0;
+			entry.memo_bypass        = MemoBypassWalks;
+		}
 		static std::unordered_map<uint32_t, uint64_t> user_data_misses;
 		static uint64_t                               memory_misses = 0;
 		static uint64_t                               first_misses  = 0;
@@ -433,17 +462,18 @@ struct PipelineCache::ProgramCache {
 			                                               user_data_misses.end());
 			std::ranges::sort(top, [](const auto& a, const auto& b) { return a.second > b.second; });
 			const auto compared = misses - first_misses;
-			std::printf("SRT memo: %" PRIu64 " hits, %" PRIu64 " misses (%" PRIu64
-			            " first of their shader, %" PRIu64 " guest memory changed, %.0f reads per "
-			            "memo); user-data registers that changed:",
-			            hits, misses, first_misses, memory_misses,
+			std::printf("SRT memo: %" PRIu64 " hits, %" PRIu64 " misses, %" PRIu64
+			            " walks without memo (%" PRIu64
+			            " misses first of their shader, %" PRIu64 " guest memory changed, %.0f "
+			            "reads per memo); user-data registers that changed:",
+			            hits, misses, bypassed, first_misses, memory_misses,
 			            compared != 0 ? static_cast<double>(memo_reads) / static_cast<double>(compared)
 			                          : 0.0);
 			for (size_t i = 0; i < top.size() && i < 6; i++) {
 				std::printf(" s%u %" PRIu64, top[i].first, top[i].second);
 			}
 			std::printf("\n");
-			hits = misses = first_misses = memory_misses = memo_reads = 0;
+			hits = misses = bypassed = first_misses = memory_misses = memo_reads = 0;
 			user_data_misses.clear();
 		}
 	}
