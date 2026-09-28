@@ -63,7 +63,8 @@ public:
 	[[nodiscard]] bool ClearImageFromBuffer(CommandBuffer& command, uint64_t address, uint64_t size,
 	                                        uint32_t packed_clear);
 	void               InvalidateMemory(uint64_t address, uint64_t size);
-	void               InvalidateMemoryFromGPU(uint64_t address, uint64_t size);
+	// `source` names the GPU write (for KYTY_UPLOAD_LOG): 0 fill, 1 copy, 2 shader storage buffer.
+	void               InvalidateMemoryFromGPU(uint64_t address, uint64_t size, uint32_t source = 3);
 	[[nodiscard]] bool IsRegionGpuModified(uint64_t address, uint64_t size);
 
 	[[nodiscard]] bool IsMeta(uint64_t address);

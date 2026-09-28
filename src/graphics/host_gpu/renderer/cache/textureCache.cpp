@@ -2253,15 +2253,44 @@ bool TextureCache::DownloadImageMemory(ImageId id) {
 	return true;
 }
 
-void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size) {
+void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size, uint32_t source) {
 	if (!GuestRange {address, size}.Valid()) {
 		return;
 	}
+	static const bool log = std::getenv("KYTY_UPLOAD_LOG") != nullptr;
 	std::scoped_lock lock {m_lock};
 	for (const auto id: FindImagesInRegion(address, size, true)) {
 		auto& image = m_slot_images[id];
 		if (!image.Overlaps(address, size)) {
 			continue;
+		}
+		if (log && !image.IsBufferModified()) {
+			// Which writes mark images, and how much of each image they cover.
+			struct Tally {
+				uint64_t marks = 0, image_bytes = 0, write_bytes = 0, largest_write = 0;
+			};
+			static std::array<Tally, 4> tallies {};
+			static auto                 last = std::chrono::steady_clock::now();
+			auto& t = tallies[std::min<uint32_t>(source, 3)];
+			t.marks++;
+			t.image_bytes += image.info.data.size;
+			const auto begin = std::max(address, image.info.data.address);
+			const auto end   = std::min(address + size, image.info.data.address + image.info.data.size);
+			t.write_bytes += end > begin ? end - begin : 0;
+			t.largest_write = std::max(t.largest_write, size);
+			if (std::chrono::steady_clock::now() - last >= std::chrono::seconds(10)) {
+				last = std::chrono::steady_clock::now();
+				const char* names[] {"fill", "copy", "storage", "other"};
+				std::printf("image invalidations in 10 s:");
+				for (size_t i = 0; i < tallies.size(); i++) {
+					std::printf(" %s %llu (images %.0f MiB, overlapped %.0f MiB, largest write %.1f MiB)",
+					            names[i], static_cast<unsigned long long>(tallies[i].marks),
+					            tallies[i].image_bytes / 1048576.0, tallies[i].write_bytes / 1048576.0,
+					            tallies[i].largest_write / 1048576.0);
+				}
+				std::printf("\n");
+				tallies = {};
+			}
 		}
 		if (image.IsGpuModified()) {
 			image.ClearGpuModified();
