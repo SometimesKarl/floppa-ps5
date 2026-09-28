@@ -2663,13 +2663,27 @@ void TextureCache::RunGarbageCollector() {
 				uint64_t count = 0, guest = 0, host = 0;
 			};
 			std::unordered_map<uint32_t, HostUse> host_use;
-			HostUse                               total_use, unregistered;
+			HostUse                               total_use, unregistered, prt, mipped;
+			uint64_t                              top_mip_bytes = 0;
 			m_slot_images.ForEach([&](ImageId, const Image& image) {
 				const auto host = m_graphics.AllocationSize(image.backing.allocation);
 				if (!image.registered) {
 					unregistered.count++;
 					unregistered.host += host;
 					return;
+				}
+				// Streamed textures: partially resident (PRT) tiling, and how much of the mipped
+				// ones is their largest level.
+				if (image.info.tile_mode == Prospero::TileMode::kPrt) {
+					prt.count++;
+					prt.guest += image.info.data.size;
+					prt.host += host;
+				}
+				if (image.info.resources.levels > 1) {
+					mipped.count++;
+					mipped.guest += image.info.data.size;
+					mipped.host += host;
+					top_mip_bytes += image.info.mip_layout[0].size;
 				}
 				for (auto* use: {&host_use[static_cast<uint32_t>(image.backing.format)], &total_use}) {
 					use->count++;
@@ -2693,7 +2707,11 @@ void TextureCache::RunGarbageCollector() {
 				            static_cast<unsigned long long>(uses[i].second.count),
 				            uses[i].second.guest / 1048576.0, uses[i].second.host / 1048576.0);
 			}
-			std::printf("\n");
+			std::printf("; PRT-tiled %llu images %.0f MiB host; mipped %llu images %.0f MiB host, "
+			            "largest level %.0f of %.0f MiB guest\n",
+			            static_cast<unsigned long long>(prt.count), prt.host / 1048576.0,
+			            static_cast<unsigned long long>(mipped.count), mipped.host / 1048576.0,
+			            top_mip_bytes / 1048576.0, mipped.guest / 1048576.0);
 			std::fflush(stdout);
 			m_gc_freed           = 0;
 			m_gc_kept            = 0;
