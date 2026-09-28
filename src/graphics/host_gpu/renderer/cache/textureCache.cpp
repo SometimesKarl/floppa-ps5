@@ -259,7 +259,9 @@ ImageId TextureCache::InsertImage(const ImageInfo& info, ImageId protect) {
 		m_slot_images.erase(id);
 		if (attempt == 3) {
 			EXIT("TextureCache: no memory for a %ux%ux%u image (format %d) after freeing idle "
-			     "images\n",
+			     "images. Video memory is full and system RAM is too low to hold more GPU memory "
+			     "without stalling the whole PC: close other applications (browsers, launchers) "
+			     "and start the game again.\n",
 			     info.extent.width, info.extent.height, info.extent.depth,
 			     static_cast<int>(info.pixel_format));
 		}

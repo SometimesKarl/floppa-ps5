@@ -25,6 +25,15 @@
 #include <cinttypes>
 #include <cstdio>
 
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#undef min
+#undef max
+#endif
+
 namespace Libs::Graphics {
 
 bool GraphicContext::CreateAllocator() {
@@ -110,6 +119,31 @@ void GraphicContext::AccountAllocation(AllocationKind kind, VmaAllocation alloca
 	counters.bytes[info.memoryType].fetch_add(sign * static_cast<int64_t>(info.size),
 	                                          std::memory_order_relaxed);
 	counters.count[info.memoryType].fetch_add(sign, std::memory_order_relaxed);
+}
+
+bool GraphicContext::SystemMemoryAllows(uint64_t bytes) const {
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	MEMORYSTATUSEX status {};
+	status.dwLength = sizeof(status);
+	if (GlobalMemoryStatusEx(&status) == 0) {
+		return true;
+	}
+	constexpr uint64_t Floor = 1024ull * 1024 * 1024;
+	const bool allows = status.ullAvailPhys >= Floor && status.ullAvailPhys - Floor >= bytes;
+	if (!allows) {
+		static std::atomic<uint32_t> refused {0};
+		if (refused.fetch_add(1, std::memory_order_relaxed) < 8) {
+			std::printf("Memory: video memory is full and only %llu MiB of system RAM is free; "
+			            "not spilling %llu MiB into it\n",
+			            static_cast<unsigned long long>(status.ullAvailPhys >> 20u),
+			            static_cast<unsigned long long>(bytes >> 20u));
+		}
+	}
+	return allows;
+#else
+	(void)bytes;
+	return true;
+#endif
 }
 
 uint64_t GraphicContext::AllocationSize(VmaAllocation allocation) const {
@@ -231,12 +265,27 @@ bool GraphicContext::CreateImage(const vk::ImageCreateInfo& image_info, VulkanIm
 
 	VmaAllocationCreateInfo alloc_info {};
 	alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	alloc_info.flags         = VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
 
 	vk::Image::CType native_image = VK_NULL_HANDLE;
 	auto              result       = static_cast<vk::Result>(
 	    vmaCreateImage(allocator, static_cast<const vk::ImageCreateInfo::NativeType*>(image_info),
 	                   &alloc_info, &native_image, &image.allocation, nullptr));
 	if (result != vk::Result::eSuccess) {
+		// Past the budget Windows pages video memory out to system RAM: allowed while RAM has room.
+		// Otherwise the texture cache frees idle images and tries again (TextureCache::InsertImage).
+		if (!SystemMemoryAllows(0)) {
+			image.image      = nullptr;
+			image.allocation = nullptr;
+			return false;
+		}
+		alloc_info.flags = 0;
+		native_image     = VK_NULL_HANDLE;
+		result           = static_cast<vk::Result>(vmaCreateImage(
+		    allocator, static_cast<const vk::ImageCreateInfo::NativeType*>(image_info), &alloc_info,
+		    &native_image, &image.allocation, nullptr));
+	}
+	if (result != vk::Result::eSuccess && SystemMemoryAllows(0)) {
 		// Video memory is exhausted even past the budget: place the image in system memory
 		// (slower to sample) rather than end the game; the texture collector frees VRAM later.
 		static std::atomic<uint32_t> fallback_count {0};

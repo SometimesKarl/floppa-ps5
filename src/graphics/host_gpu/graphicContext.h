@@ -110,6 +110,11 @@ struct GraphicContext {
 	void AccountAllocation(AllocationKind kind, VmaAllocation allocation, bool added) const;
 	// Bytes the allocation occupies (0 for none).
 	[[nodiscard]] uint64_t AllocationSize(VmaAllocation allocation) const;
+	// Whether system RAM can take `bytes` more of GPU memory (a spill past the video-memory budget
+	// or a placement in system memory) and keep 1 GiB available. Past that, Windows pages video
+	// memory in and out of a nearly full RAM and the whole PC stalls (ASTRO BOT, Sky Garden):
+	// callers free what they can, then stop with a message instead.
+	[[nodiscard]] bool SystemMemoryAllows(uint64_t bytes) const;
 	[[nodiscard]] bool CanReportMemoryUsage() const noexcept { return memory_budget_ext_enabled; }
 	[[nodiscard]] uint64_t GetDeviceMemoryUsage() const;
 	[[nodiscard]] uint64_t GetTotalMemoryBudget() const;

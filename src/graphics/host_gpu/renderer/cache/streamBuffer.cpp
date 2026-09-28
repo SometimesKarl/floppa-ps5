@@ -100,7 +100,9 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 		    &allocation_info, &native_buffer, &m_allocation, &allocation_result));
 	};
 	auto result = create();
-	if (result != vk::Result::eSuccess) {
+	// Past the budget, or in system memory, GPU memory comes out of system RAM: only while it
+	// has room (GraphicContext::SystemMemoryAllows); otherwise the emulator stops below.
+	if (result != vk::Result::eSuccess && graphics.SystemMemoryAllows(size)) {
 		// A level load can allocate faster than the cache collectors free the previous level's
 		// resources. Past the budget the driver still allocates (the OS pages VRAM out), which
 		// is slower for a moment but lets the collectors catch up instead of ending the game.
@@ -114,7 +116,8 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 		allocation_info.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
 		result = create();
 	}
-	if (result != vk::Result::eSuccess && usage == MemoryUsage::DeviceLocal) {
+	if (result != vk::Result::eSuccess && usage == MemoryUsage::DeviceLocal &&
+	    graphics.SystemMemoryAllows(size)) {
 		// Video memory is exhausted outright: system memory is slower for the GPU to read, but
 		// the game keeps running while the collectors free video memory.
 		allocation_info.usage          = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
@@ -145,8 +148,10 @@ Buffer::Buffer(GraphicContext& graphics, CommandScheduler& scheduler, MemoryUsag
 		            size, static_cast<int>(usage), static_cast<uint32_t>(allocation_info.flags),
 		            vk::to_string(result).c_str());
 		graphics.LogMemoryBudget();
+		EXIT("Out of video memory, and system RAM is too low to hold more GPU memory without "
+		     "stalling the whole PC. Close other applications (browsers, launchers) and start the "
+		     "game again.\n");
 	}
-	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
 	graphics.AccountAllocation(AccountingKind(usage), m_allocation, true);
 
 	m_buffer = native_buffer;
