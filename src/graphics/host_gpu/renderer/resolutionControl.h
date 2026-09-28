@@ -10,7 +10,8 @@
 // recording time), so stretching that clock makes the GPU look slower and the title renders
 // fewer pixels; shrinking it does the opposite. This watches the size of the render targets the
 // title draws into most and adjusts the stretch until that size matches the configured one.
-// With no resolution configured the clock is left alone.
+// With no resolution configured, or for a title without a verified profile (only ASTRO BOT
+// PPSA21564 has one), the clock is left alone.
 namespace Libs::Graphics::ResolutionControl {
 
 // Width the title's main passes should render at, 0 when not steering. Set once at boot from

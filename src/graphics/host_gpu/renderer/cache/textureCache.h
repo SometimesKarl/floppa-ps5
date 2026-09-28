@@ -122,6 +122,19 @@ private:
 	// Frees idle images, oldest first, and waits for the GPU so their memory is returned: used
 	// when video and system memory both refuse a new image. Returns the bytes freed.
 	uint64_t                  ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive);
+	// Largest GPU-written image an eviction writes back to guest memory (in one piece, through
+	// the 64 MiB download ring); larger ones are kept.
+	static constexpr uint64_t EvictionDownloadMax = 32ull * 1024 * 1024;
+	// Whether evicting `image` loses nothing: not GPU-written, or writable back to guest memory.
+	[[nodiscard]] bool        CanPreserveForEviction(const Image& image);
+	// Writes a GPU-written image back before its eviction, within `budget` bytes (reduced by
+	// what was written).
+	enum class Preserve {
+		Evictable, // nothing to write back, or written back
+		Keep,      // cannot be written back: the image stays
+		Later,     // over this call's budget
+	};
+	[[nodiscard]] Preserve    PreserveForEviction(ImageId id, uint64_t& budget);
 	[[nodiscard]] ImageId     GetNullImage(const ImageDesc& desc);
 	void                      RegisterImage(ImageId id);
 	void                      UnregisterImage(ImageId id);
@@ -212,10 +225,12 @@ private:
 	uint64_t m_gc_freed = 0;
 	uint64_t m_gc_kept  = 0;
 	uint64_t m_gc_emergency_freed = 0;
+	uint64_t m_gc_preserved_bytes = 0;
 	uint64_t m_overlap_freed = 0;
 	Common::TickHistory m_tick_history;
-	// Over the device budget (a level load outrunning the regular passes): frees every image
-	// unused for 5 s, and GPU-written tiled images unused for 30 s. Caller holds m_lock.
+	// Near the device budget (a level load outrunning the regular passes): frees images unused
+	// for 5 s, writing GPU-written ones back to guest memory first (a bounded amount per call);
+	// those that cannot be written back stay. Caller holds m_lock.
 	// `critical`: video memory is almost full; images unused for a second go instead of five.
 	void EmergencyCollect(uint64_t tick, bool critical);
 	uint64_t                                          m_trigger_gc_memory  = 0;

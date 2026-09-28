@@ -1168,9 +1168,9 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	    AcquireRenderTargets(buffer, state.color_info, state.color_count, state.depth_info,
 	                         feedback_aspects, stages);
 	if (!pipeline.ready.load(std::memory_order_acquire)) {
-		// A compile worker is still building this pipeline (a first compile takes 0.1-4 s with
-		// this title's shaders). Skip the draw rather than stall the frame; it reappears as soon
-		// as the pipeline is ready, and the driver cache makes it instant in later sessions.
+		// KYTY_ASYNC_PIPELINES=1 only: a compile worker is still building this pipeline (a first
+		// compile takes 0.1-4 s with this title's shaders). The draw is skipped rather than the
+		// frame stalled; what it would have drawn this frame is lost (see AsyncPipelinesEnabled).
 		LogDrawPhase(draw.Name(), "SkippedPipelineCompiling");
 		return;
 	}

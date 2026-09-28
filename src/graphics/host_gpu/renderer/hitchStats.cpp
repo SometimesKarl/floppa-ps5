@@ -2,6 +2,7 @@
 
 #include "common/timer.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -20,7 +21,8 @@ struct Frame {
 	uint64_t textures      = 0;
 	uint64_t texture_bytes = 0;
 	uint64_t begin         = 0;
-	// Nested scopes (an upload inside a pipeline build) count once, in the outer category.
+	// Open scopes. Each scope is charged its own (exclusive) time: see g_child_ticks. A scope
+	// still open at a flip is charged in full to the frame it closes in.
 	uint32_t depth         = 0;
 };
 Frame g_frame;
@@ -114,7 +116,8 @@ void EndGuestFrame() {
 					top = i;
 				}
 			}
-			const double other = total - accounted;
+			// Negative only when a scope open across the previous flip closed in this frame.
+			const double other = std::max(0.0, total - accounted);
 			if (other > Ms(f.ticks[top])) {
 				s.other++;
 			} else {

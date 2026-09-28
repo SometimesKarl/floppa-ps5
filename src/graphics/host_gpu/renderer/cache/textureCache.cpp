@@ -318,12 +318,52 @@ void TextureCache::UnregisterImage(ImageId id) {
 	image.registered = false;
 }
 
+bool TextureCache::CanPreserveForEviction(const Image& image) {
+	// A GPU-written image may hold the only copy of what the GPU drew (a material rendered once at
+	// level load, a previous level's targets the game returns to). Idle time does not prove the
+	// guest is done with it: before eviction its contents go back to guest memory, and an image
+	// that cannot be written back is kept.
+	if (!image.IsGpuModified()) {
+		return true;
+	}
+	// Written over by buffers or the CPU since: guest memory or a buffer holds the newer bytes,
+	// which the general collector already treats as authoritative. Not evicted here.
+	if (!SafeToDownload(image) || image.depth_id) {
+		return false;
+	}
+	// The stencil plane of a depth image has no write-back path.
+	if (image.usage.depth_target && image.info.HasStencil()) {
+		return false;
+	}
+	// Written back through the 64 MiB download ring in one piece. (Whether the layout has a
+	// download path is only known by building the transfer: see PreserveForEviction.)
+	return image.info.data.size <= EvictionDownloadMax;
+}
+
+TextureCache::Preserve TextureCache::PreserveForEviction(ImageId id, uint64_t& budget) {
+	auto& image = m_slot_images[id];
+	if (!image.IsGpuModified()) {
+		return Preserve::Evictable;
+	}
+	const auto size = image.info.data.size;
+	if (!CanPreserveForEviction(image)) {
+		return Preserve::Keep;
+	}
+	if (size > budget) {
+		return Preserve::Later;
+	}
+	if (!DownloadImageMemory(id)) {
+		return Preserve::Keep;
+	}
+	budget -= size;
+	m_gc_preserved_bytes += size;
+	return Preserve::Evictable;
+}
+
 uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bool aggressive) {
 	KYTY_PROFILER_FUNCTION();
 	const auto current = m_scheduler.CurrentTick();
-	// A GPU-written tiled image has no download path: dropping it loses what the GPU wrote, so
-	// only images unused for a while (a previous level's targets) go.
-	const auto           stale_tick = m_tick_history.TickSecondsAgo(aggressive ? 1.0 : 3.0);
+	const auto           idle_tick = m_tick_history.TickSecondsAgo(aggressive ? 1.0 : 3.0);
 	std::vector<ImageId> victims;
 	uint64_t             freed = 0;
 	m_lru_cache.ForEachItemBelow(m_gc_tick, [&](ImageId id) {
@@ -335,8 +375,11 @@ uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bo
 		    image->binding.is_target) {
 			return false;
 		}
-		if (image->IsGpuModified() && (image->info.IsTiled() || !SafeToDownload(*image)) &&
-		    (stale_tick == 0 || m_lru_cache.TickOf(image->lru_id) > stale_tick)) {
+		// GPU-written images recently used are likely used again right away: writing them back
+		// only to upload them again costs more than it frees.
+		if (image->IsGpuModified() &&
+		    (!CanPreserveForEviction(*image) || idle_tick == 0 ||
+		     m_lru_cache.TickOf(image->lru_id) > idle_tick)) {
 			return false;
 		}
 		victims.push_back(id);
@@ -345,13 +388,14 @@ uint64_t TextureCache::ReclaimForAllocation(uint64_t needed, ImageId protect, bo
 	});
 	std::vector<ImageId> erased;
 	erased.reserve(victims.size());
+	// An allocation is failing: write back as much as it takes, the frame is stalled anyway.
+	uint64_t preserve_budget = UINT64_MAX;
 	for (const auto id: victims) {
 		auto* image = m_slot_images.try_get(id);
 		if (image == nullptr || !image->registered) {
 			continue;
 		}
-		if (image->IsGpuModified() && !image->info.IsTiled() && SafeToDownload(*image) &&
-		    !DownloadImageMemory(id)) {
+		if (PreserveForEviction(id, preserve_budget) != Preserve::Evictable) {
 			continue;
 		}
 		if (image->IsGpuModified()) {
@@ -2382,7 +2426,6 @@ void TextureCache::UnmapMemory(uint64_t address, uint64_t size) {
 
 void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
 	const auto idle_tick  = m_tick_history.TickSecondsAgo(critical ? 1.0 : 5.0);
-	const auto stale_tick = m_tick_history.TickSecondsAgo(critical ? 5.0 : 10.0);
 	if (idle_tick == 0) {
 		return;
 	}
@@ -2396,12 +2439,8 @@ void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
 	m_lru_cache.ForEachItemBelow(idle_tick, [&](ImageId id) {
 		const auto* owner = m_slot_images.try_get(id);
 		if (owner != nullptr && owner->registered) {
-			const bool tiled_gpu = owner->IsGpuModified() && owner->info.IsTiled() &&
-			                       SafeToDownload(*owner);
-			// A GPU-written tiled image has no download path: dropping it loses what the GPU
-			// wrote, so only images nothing has used for 10 s (a previous level's targets) go.
-			if (owner->depth_id ||
-			    (tiled_gpu && (stale_tick == 0 || m_lru_cache.TickOf(owner->lru_id) > stale_tick))) {
+			// Kept rather than dropped: GPU-written images that cannot be written back.
+			if (owner->depth_id || !CanPreserveForEviction(*owner)) {
 				kept.push_back(owner->lru_id);
 			} else {
 				candidates.push_back(id);
@@ -2409,6 +2448,9 @@ void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
 		}
 		return ++scanned >= 8192;
 	});
+	// Writing images back costs a GPU copy and a CPU copy each; spread over collections so that
+	// running out of video memory does not turn into a long stall instead.
+	uint64_t preserve_budget = EvictionDownloadMax * 2;
 	for (const auto id: candidates) {
 		if (m_total_used_memory < target) {
 			break;
@@ -2417,8 +2459,11 @@ void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
 		if (owner == nullptr || !owner->registered) {
 			continue;
 		}
-		if (owner->IsGpuModified() && !owner->info.IsTiled() && SafeToDownload(*owner) &&
-		    !DownloadImageMemory(id)) {
+		const auto preserve = PreserveForEviction(id, preserve_budget);
+		if (preserve == Preserve::Keep) {
+			m_lru_cache.Touch(owner->lru_id, tick);
+		}
+		if (preserve != Preserve::Evictable) {
 			continue;
 		}
 		FreeImage(id);
@@ -2538,11 +2583,12 @@ void TextureCache::RunGarbageCollector() {
 			});
 			std::printf("TextureCache: %" PRIu64 " images %.0f MiB (GPU-written tiled %" PRIu64
 			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
-			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 ", replaced %" PRIu64
-			            " in 30 s\n",
+			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 " (%.0f MiB written back)"
+			            ", replaced %" PRIu64 " in 30 s\n",
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
-			            m_gc_freed, m_gc_kept, m_gc_emergency_freed, m_overlap_freed);
+			            m_gc_freed, m_gc_kept, m_gc_emergency_freed,
+			            m_gc_preserved_bytes / 1048576.0, m_overlap_freed);
 			// How recently the cached images were used, and by what kind: what an eviction under
 			// video-memory pressure could free without touching this second's working set.
 			const std::array<double, 4> ages {1.0, 5.0, 30.0, 1e9};
@@ -2585,6 +2631,7 @@ void TextureCache::RunGarbageCollector() {
 			m_gc_freed           = 0;
 			m_gc_kept            = 0;
 			m_gc_emergency_freed = 0;
+			m_gc_preserved_bytes = 0;
 			m_overlap_freed      = 0;
 		}
 	}

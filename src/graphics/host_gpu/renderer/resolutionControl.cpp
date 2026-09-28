@@ -1,11 +1,14 @@
 #include "graphics/host_gpu/renderer/resolutionControl.h"
 
+#include "loader/systemContent.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <string>
 
 namespace Libs::Graphics::ResolutionControl {
 
@@ -28,6 +31,46 @@ struct Widths {
 	uint32_t                last_logged_width = 0;
 } g_widths;
 
+// Titles whose dynamic resolution was verified to follow this steering without side effects
+// (game speed, animation, audio). Changing the reference clock is guest-visible: other titles may
+// use it for anything, so render_resolution does nothing for them.
+struct Profile {
+	const char* title_id;
+	const char* version; // the version it was verified with
+};
+constexpr std::array<Profile, 1> Profiles {{{"PPSA21564", "01.007.000"}}}; // ASTRO BOT
+
+// 0: title not known yet, 1: steering this title, 2: not steering this title.
+std::atomic<int> g_title_state {0};
+
+bool TitleSupported() {
+	const auto state = g_title_state.load(std::memory_order_acquire);
+	if (state != 0) {
+		return state == 1;
+	}
+	std::string title, version;
+	if (!Loader::SystemContentParamSfoGetString("TITLE_ID", &title) || title.empty()) {
+		return false;
+	}
+	(void)Loader::SystemContentParamSfoGetString("APP_VER", &version);
+	const auto profile = std::ranges::find_if(
+	    Profiles, [&](const Profile& p) { return title == p.title_id; });
+	int expected = 0;
+	if (!g_title_state.compare_exchange_strong(expected, profile != Profiles.end() ? 1 : 2)) {
+		return expected == 1;
+	}
+	if (profile == Profiles.end()) {
+		std::printf("Resolution control: render_resolution ignored: no verified profile for %s\n",
+		            title.c_str());
+		return false;
+	}
+	if (version != profile->version) {
+		std::printf("Resolution control: %s version %s (verified with %s)\n", title.c_str(),
+		            version.c_str(), profile->version);
+	}
+	return true;
+}
+
 std::mutex g_clock_mutex;
 uint64_t   g_last_real     = 0;
 uint64_t   g_last_reported = 0;
@@ -37,13 +80,14 @@ uint64_t   g_last_reported = 0;
 void Configure(uint32_t target_width) {
 	g_target_width.store(target_width, std::memory_order_relaxed);
 	if (target_width != 0) {
-		std::printf("Resolution control: steering the title's dynamic resolution to %u pixels wide\n",
+		std::printf("Resolution control: render_resolution %u pixels wide (titles with a verified "
+		            "profile only)\n",
 		            target_width);
 	}
 }
 
 bool Active() {
-	return g_target_width.load(std::memory_order_relaxed) != 0;
+	return g_target_width.load(std::memory_order_relaxed) != 0 && TitleSupported();
 }
 
 void NoteColorTarget(uint32_t width, uint32_t height) {
@@ -65,7 +109,7 @@ void NoteColorTarget(uint32_t width, uint32_t height) {
 
 void EndGuestFrame() {
 	const auto target = g_target_width.load(std::memory_order_relaxed);
-	if (target == 0) {
+	if (target == 0 || !TitleSupported()) {
 		return;
 	}
 	auto& w = g_widths;

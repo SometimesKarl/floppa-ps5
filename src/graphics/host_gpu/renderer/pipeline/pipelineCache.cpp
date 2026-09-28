@@ -710,15 +710,15 @@ struct PipelineCache::AsyncCompiler {
 
 namespace {
 
-// Opt-in: a draw skipped while its pipeline compiles is never redrawn, and ASTRO BOT renders
-// some textures once (terrain materials): skipping left the desert sand flat yellow and rocks
-// black for the rest of the session. KYTY_ASYNC_PIPELINES=1 trades that risk for no stalls.
-// On by default: only draws into targets redrawn every frame are deferred (see
-// RenderExecutor::TargetsDrawnEveryFrame); KYTY_ASYNC_PIPELINES=0 compiles every pipeline in
-// place.
+// Opt-in (KYTY_ASYNC_PIPELINES=1): a draw whose pipeline is still compiling is skipped, not
+// delayed. Only draws into targets drawn in each of the last frames are candidates (see
+// RenderExecutor::TargetsDrawnEveryFrame), but that does not make a skip harmless: a target
+// redrawn every frame can still carry history (temporal accumulation), a partial update that is
+// not repeated, or shader storage writes and queries other passes consume. Skipping draws of
+// textures rendered once left the desert sand flat yellow for the rest of a session.
 bool AsyncPipelinesEnabled() {
 	const char* value = std::getenv("KYTY_ASYNC_PIPELINES");
-	return value == nullptr || value[0] != '0';
+	return value != nullptr && value[0] == '1';
 }
 
 uint32_t CompileWorkerCount() {
@@ -726,6 +726,18 @@ uint32_t CompileWorkerCount() {
 		return std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1, 8);
 	}
 	return std::clamp<uint32_t>(std::thread::hardware_concurrency() / 3, 1, 4);
+}
+
+// Boot-time pipeline prewarm threads. Each driver compile of this title's large shaders holds
+// hundreds of MiB, and the guest boots alongside: one thread per physical core but one (logical
+// threads / 2, assuming SMT), at most 4. KYTY_PREWARM_THREADS overrides (1-12).
+uint32_t PrewarmThreadCount() {
+	if (const char* value = std::getenv("KYTY_PREWARM_THREADS"); value != nullptr) {
+		return std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1, 12);
+	}
+	const auto logical = std::thread::hardware_concurrency();
+	const auto physical = logical / 2;
+	return std::clamp<uint32_t>(physical > 1 ? physical - 1 : 1, 1, 4);
 }
 
 } // namespace
@@ -785,9 +797,9 @@ void PipelineCache::StartPrecompile() {
 			return;
 		}
 		// Every pipeline earlier sessions created, created again before the guest draws: the
-		// driver cache makes most instant; what it lacks (new driver, lost cache) compiles here on
-		// all cores instead of one at a time in the middle of play.
-		const auto threads = std::max(2u, std::thread::hardware_concurrency() - 1);
+		// driver cache makes most instant; what it lacks (new driver, lost cache) compiles here in
+		// parallel instead of one at a time in the middle of play.
+		const auto threads = PrewarmThreadCount();
 		const auto stats   = PipelinePrewarm::Replay(
             m_graphics, m_driver_cache, threads, [](uint32_t done, uint32_t total) {
                 WindowSetStatus(fmt::format("preparing pipelines {}/{}", done, total));
