@@ -137,23 +137,30 @@ public:
 	// GPU buffer writes changed guest bytes of the image, which ones unknown.
 	void MarkBufferModified() noexcept {
 		m_buffer_modified    = true;
-		m_buffer_dirty_begin = 0;
-		m_buffer_dirty_end   = UINT64_MAX;
+		m_buffer_dirty_bands = ~uint64_t {0};
 	}
-	// GPU buffer writes changed the image's guest bytes [begin, end) (guest addresses); marks
-	// accumulate into one covering range until the image is refreshed.
+	// GPU buffer writes changed the image's guest bytes [begin, end) (guest addresses). Marks
+	// accumulate per 64th of the image (BufferDirtyBand) until the image is refreshed: two small
+	// writes at both ends of an image do not mark all of it.
 	void MarkBufferModified(uint64_t begin, uint64_t end) noexcept {
-		m_buffer_dirty_begin = m_buffer_modified ? std::min(m_buffer_dirty_begin, begin) : begin;
-		m_buffer_dirty_end   = m_buffer_modified ? std::max(m_buffer_dirty_end, end) : end;
-		m_buffer_modified    = true;
+		m_buffer_modified = true;
+		if (begin >= end || info.data.size == 0) {
+			return;
+		}
+		const auto band  = BufferDirtyBand();
+		const auto first = std::min<uint64_t>((begin - std::min(begin, info.data.address)) / band, 63);
+		const auto last  = std::min<uint64_t>((end - 1 - std::min(end - 1, info.data.address)) / band, 63);
+		m_buffer_dirty_bands |= (~uint64_t {0} >> (63 - last)) & (~uint64_t {0} << first);
 	}
 	void ClearBufferModified() noexcept {
 		m_buffer_modified    = false;
-		m_buffer_dirty_begin = UINT64_MAX;
-		m_buffer_dirty_end   = 0;
+		m_buffer_dirty_bands = 0;
 	}
-	[[nodiscard]] uint64_t BufferDirtyBegin() const noexcept { return m_buffer_dirty_begin; }
-	[[nodiscard]] uint64_t BufferDirtyEnd() const noexcept { return m_buffer_dirty_end; }
+	// Bit i: guest bytes [address + i * BufferDirtyBand(), + BufferDirtyBand()) changed.
+	[[nodiscard]] uint64_t BufferDirtyBands() const noexcept { return m_buffer_dirty_bands; }
+	[[nodiscard]] uint64_t BufferDirtyBand() const noexcept {
+		return std::max<uint64_t>((info.data.size + 63) / 64, 1);
+	}
 
 	[[nodiscard]] bool Overlaps(uint64_t address, uint64_t size,
 	                            bool pages = false) const noexcept {
@@ -211,8 +218,7 @@ private:
 	bool              m_maybe_hash_valid = false;
 	bool              m_gpu_modified     = false;
 	bool              m_buffer_modified  = false;
-	uint64_t          m_buffer_dirty_begin = UINT64_MAX;
-	uint64_t          m_buffer_dirty_end   = 0;
+	uint64_t          m_buffer_dirty_bands = 0;
 };
 
 namespace ImageOps {

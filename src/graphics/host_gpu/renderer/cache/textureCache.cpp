@@ -1309,33 +1309,80 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 			miss(PartialMiss::Layout);
 		}
 		if (changed_rows_only && simple_layout) {
-			auto&      tile   = transfer.tiles[0];
-			auto&      region = transfer.regions[0];
-			const auto band   = ChangedRowBand(info, tile, image.BufferDirtyBegin(),
-			                                   image.BufferDirtyEnd());
-			if (band.valid && band.rows == 0) {
+			// One row band per run of changed 64ths of the image, merged where the widened bands
+			// meet.
+			const auto& tile       = transfer.tiles[0];
+			const auto  dirty      = image.BufferDirtyBands();
+			const auto  band_bytes = image.BufferDirtyBand();
+			std::array<RowBand, 64> bands {};
+			size_t                  band_count = 0;
+			bool                    whole      = dirty == 0;
+			for (uint32_t bit = 0; bit < 64 && !whole;) {
+				if (((dirty >> bit) & 1u) == 0) {
+					bit++;
+					continue;
+				}
+				uint32_t end_bit = bit;
+				while (end_bit < 64 && ((dirty >> end_bit) & 1u) != 0) {
+					end_bit++;
+				}
+				const auto begin = info.data.address + bit * band_bytes;
+				const auto end   = std::min(info.data.address + end_bit * band_bytes, info.data.End());
+				bit              = end_bit;
+				const auto band  = ChangedRowBand(info, tile, begin, end);
+				if (!band.valid) {
+					whole = true;
+				} else if (band.rows == 0) {
+					continue;
+				} else if (band_count != 0 && band.first_block_row <= bands[band_count - 1].first_block_row +
+				                                                         bands[band_count - 1].block_rows) {
+					auto&          last      = bands[band_count - 1];
+					const uint64_t end_block = std::max(last.first_block_row + last.block_rows,
+					                                    band.first_block_row + band.block_rows);
+					last.block_rows          = end_block - last.first_block_row;
+					last.rows                = static_cast<uint32_t>(
+                        std::min<uint64_t>(end_block * last.block_height, tile.height) - last.first_row);
+				} else {
+					bands[band_count++] = band;
+				}
+			}
+			uint64_t rows = 0;
+			for (size_t i = 0; i < band_count; i++) {
+				rows += bands[i].rows;
+			}
+			if (!whole && band_count == 0) {
+				// The changed bytes lie in padding.
 				m_partial_upload_bytes_saved += info.data.size;
 				return;
 			}
-			const bool small_band =
-			    band.valid && static_cast<uint64_t>(band.rows) * 4 < static_cast<uint64_t>(tile.height) * 3;
-			if (!small_band) {
-				miss(band.valid ? PartialMiss::BandLarge : PartialMiss::Family);
-			}
-			// A band of most of the image is not worth the smaller dispatch.
-			if (small_band) {
-				const uint64_t pitch_bytes = static_cast<uint64_t>(tile.pitch) * tile.bytes_per_element;
-				tile.tiled_offset += band.first_block_row * band.row_bytes;
-				tile.tiled_size    = band.block_rows * band.row_bytes;
-				tile.tiled_height  = static_cast<uint32_t>(band.block_rows * band.block_height);
-				tile.height        = band.rows;
-				tile.linear_offset = 0;
-				tile.linear_size   = pitch_bytes * band.rows;
-				region.bufferOffset       = 0;
-				region.bufferImageHeight  = band.rows;
-				region.imageOffset.y     += static_cast<int32_t>(band.first_row);
-				region.imageExtent.height = band.rows;
-				m_partial_upload_bytes_saved += info.data.size - tile.tiled_size;
+			// Bands of most of the image are not worth the smaller dispatches.
+			if (whole || rows * 4 >= static_cast<uint64_t>(tile.height) * 3) {
+				miss(whole ? PartialMiss::Family : PartialMiss::BandLarge);
+			} else {
+				uint64_t uploaded = 0;
+				for (size_t i = 0; i < band_count; i++) {
+					const auto&    band        = bands[i];
+					auto           part        = transfer;
+					auto&          part_tile   = part.tiles[0];
+					auto&          region      = part.regions[0];
+					const uint64_t pitch_bytes = static_cast<uint64_t>(part_tile.pitch) * part_tile.bytes_per_element;
+					part_tile.tiled_offset += band.first_block_row * band.row_bytes;
+					part_tile.tiled_size    = band.block_rows * band.row_bytes;
+					part_tile.tiled_height  = static_cast<uint32_t>(band.block_rows * band.block_height);
+					part_tile.height        = band.rows;
+					part_tile.linear_offset = 0;
+					part_tile.linear_size   = pitch_bytes * band.rows;
+					region.bufferOffset       = 0;
+					region.bufferImageHeight  = band.rows;
+					region.imageOffset.y     += static_cast<int32_t>(band.first_row);
+					region.imageExtent.height = band.rows;
+					const auto linear = m_tiler.Detile(source.Handle(), source_offset, info.data.size,
+					                                   part.LinearSize(), part.tiles);
+					upload(part.regions, linear);
+					uploaded += part_tile.tiled_size;
+				}
+				m_partial_upload_bytes_saved += info.data.size - std::min(uploaded, info.data.size);
+				return;
 			}
 		}
 		TileManager::Result linear {source.Handle(), source_offset, info.data.size};
