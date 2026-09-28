@@ -1260,7 +1260,6 @@ void TextureCache::InitializeImage(ImageId id) {
 	KYTY_PROFILER_FUNCTION();
 	HitchStats::Scope hitch(HitchStats::Category::TextureUpload);
 	auto& image = m_slot_images[id];
-	HitchStats::CountTexture(image.info.data.size);
 	if (image.info.data.Empty()) {
 		return;
 	}
@@ -1276,6 +1275,44 @@ void TextureCache::InitializeImage(ImageId id) {
 	}
 	const bool upload = image.IsBufferModified() || image.IsCpuDirty();
 	if (upload) {
+		HitchStats::CountTexture(image.info.data.size);
+		// KYTY_UPLOAD_LOG=1: which images are uploaded again and again, and why.
+		static const bool log_uploads = std::getenv("KYTY_UPLOAD_LOG") != nullptr;
+		if (log_uploads) {
+			struct Entry {
+				uint64_t count = 0, bytes = 0, buffer_modified = 0;
+				uint32_t width = 0, height = 0, format = 0, levels = 0;
+			};
+			static std::unordered_map<uint64_t, Entry> uploads;
+			static auto                                 last = std::chrono::steady_clock::now();
+			auto& e = uploads[image.info.data.address];
+			e.count++;
+			e.bytes += image.info.data.size;
+			e.buffer_modified += image.IsBufferModified() ? 1u : 0u;
+			e.width  = image.info.extent.width;
+			e.height = image.info.extent.height;
+			e.format = static_cast<uint32_t>(image.info.pixel_format);
+			e.levels = image.info.resources.levels;
+			if (std::chrono::steady_clock::now() - last >= std::chrono::seconds(10)) {
+				last = std::chrono::steady_clock::now();
+				std::vector<std::pair<uint64_t, Entry>> top(uploads.begin(), uploads.end());
+				std::ranges::sort(top, [](const auto& a, const auto& b) { return a.second.bytes > b.second.bytes; });
+				uint64_t total = 0;
+				for (const auto& [address, entry]: top) {
+					total += entry.bytes;
+				}
+				std::printf("uploads in 10 s: %zu images %.0f MiB; top:", top.size(), total / 1048576.0);
+				for (size_t i = 0; i < top.size() && i < 8; i++) {
+					const auto& t = top[i].second;
+					std::printf(" [0x%llx %ux%u fmt %u mips %u: %llu x, %.0f MiB, %llu from GPU-written buffers]",
+					            static_cast<unsigned long long>(top[i].first), t.width, t.height, t.format,
+					            t.levels, static_cast<unsigned long long>(t.count), t.bytes / 1048576.0,
+					            static_cast<unsigned long long>(t.buffer_modified));
+				}
+				std::printf("\n");
+				uploads.clear();
+			}
+		}
 		const auto [source, source_offset] =
 		    m_buffer_cache.ObtainBufferForImage(image.info.data.address, image.info.data.size);
 		if (source == nullptr) {
