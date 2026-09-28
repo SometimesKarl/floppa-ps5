@@ -24,6 +24,7 @@ struct Widths {
 	std::array<uint32_t, 8> width {};
 	std::array<uint32_t, 8> binds {};
 	uint32_t                frames = 0;
+	uint32_t                outside = 0; // consecutive periods outside the target band
 	uint32_t                last_logged_width = 0;
 } g_widths;
 
@@ -85,11 +86,17 @@ void EndGuestFrame() {
 	if (width == 0) {
 		return;
 	}
-	auto scale = g_scale.load(std::memory_order_relaxed);
-	if (width > target * 103 / 100) {
-		scale = std::min(scale * 1.25, MaxScale);
-	} else if (width < target * 97 / 100) {
-		scale = std::max(scale / 1.25, MinScale);
+	// Titles resize in a few fixed steps (ASTRO BOT: 1920, 2432, 3328, 3840 wide), and every
+	// switch recreates their render targets (a visible hitch), so a step near the target is
+	// held rather than chased: the band spans from 7% under to 5% over the target. Only two
+	// periods in a row outside it move the clock, and in small steps.
+	auto       scale = g_scale.load(std::memory_order_relaxed);
+	const bool high  = width > target * 105 / 100;
+	const bool low   = width < target * 93 / 100;
+	w.outside        = (high || low) ? w.outside + 1 : 0;
+	if (w.outside >= 2) {
+		w.outside = 0;
+		scale     = high ? std::min(scale * 1.2, MaxScale) : std::max(scale / 1.2, MinScale);
 	}
 	g_scale.store(scale, std::memory_order_relaxed);
 	if (width != w.last_logged_width) {
