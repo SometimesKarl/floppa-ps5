@@ -76,6 +76,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <tuple>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -16384,6 +16385,11 @@ private:
     device_features.sampleRateShading = true;
     device_features.shaderInt64 = true;
     device_features.shaderFloat64 = available_features.shaderFloat64;
+    // Enabled by the emulator's device (vulkanWindow.cpp) and used by production pipelines;
+    // mirrored where the test device has them so validation reports only real problems.
+    device_features.depthClamp = available_features.depthClamp;
+    device_features.independentBlend = available_features.independentBlend;
+    device_features.shaderClipDistance = available_features.shaderClipDistance;
     device_features.fillModeNonSolid = m_rasterization_supported;
     device_features.tessellationShader = m_rasterization_supported;
     device_info.pEnabledFeatures = &device_features;
@@ -16396,6 +16402,20 @@ private:
     }
     if (m_min_lod_supported) {
       device_extensions.push_back(VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME);
+    }
+    {
+      u32 extension_count = 0;
+      std::ignore = m_physical_device.enumerateDeviceExtensionProperties(nullptr, &extension_count,
+                                                                        nullptr);
+      std::vector<vk::ExtensionProperties> extensions(extension_count);
+      std::ignore = m_physical_device.enumerateDeviceExtensionProperties(nullptr, &extension_count,
+                                                                        extensions.data());
+      if (std::ranges::any_of(extensions, [](const vk::ExtensionProperties &extension) {
+            return std::strcmp(extension.extensionName,
+                               VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME) == 0;
+          })) {
+        device_extensions.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+      }
     }
     if (m_rasterization_supported) {
       device_extensions.push_back(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
