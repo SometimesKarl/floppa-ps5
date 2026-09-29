@@ -18,6 +18,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <fmt/format.h>
+#include <mutex>
+#include <set>
+#include <string>
 #include <xxhash.h>
 
 namespace Libs::Graphics {
@@ -310,6 +313,20 @@ void Image::Transit(vk::ImageLayout destination_layout, vk::AccessFlags2 destina
 		return;
 	}
 	RenderStats::Count(RenderStats::g_image_barriers);
+	if (RenderStats::Enabled() && m_scheduler.Current().IsRendering()) {
+		// KYTY_GPU_STATS: which layout changes end render passes, on which images.
+		static std::mutex             mutex;
+		static std::set<std::string>  labels;
+		std::string label = fmt::format("transit {}->{} {}x{} {}", vk::to_string(backing.state.layout),
+		                                vk::to_string(destination_layout), info.extent.width,
+		                                info.extent.height, vk::to_string(info.pixel_format));
+		const char* key = nullptr;
+		{
+			std::scoped_lock lock {mutex};
+			key = labels.insert(std::move(label)).first->c_str();
+		}
+		RenderStats::CountBreak(key, 0);
+	}
 	m_scheduler.EndRendering();
 	vk::DependencyInfo dependency {};
 	dependency.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
