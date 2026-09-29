@@ -1332,10 +1332,23 @@ RowBand ChangedRowBand(const ImageInfo& info, const GpuTileInfo& tile, uint64_t 
 	return band;
 }
 
+// The tiler binds storage ranges of a stated size from an offset and cannot see the size of the
+// buffer behind them. A range past its end is a GPU out-of-bounds access, which can hang the whole
+// machine (S17) instead of failing: stop with a message first.
+void CheckBufferRange(const char* what, const ImageInfo& info, const Buffer& buffer, uint64_t offset,
+                      uint64_t size) {
+	if (offset > buffer.Size() || size > buffer.Size() - offset) {
+		EXIT("TextureCache::%s: range outside the buffer: guest=0x%016" PRIx64
+		     " offset=0x%" PRIx64 " size=0x%" PRIx64 " buffer size=0x%" PRIx64 "\n",
+		     what, info.data.address, offset, size, buffer.Size());
+	}
+}
+
 } // namespace
 
 void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_offset,
                                bool changed_rows_only) {
+	CheckBufferRange("UploadImage", image.info, source, source_offset, image.info.data.size);
 	auto& destination = image.depth_id ? m_slot_images[image.depth_id] : image;
 	const auto binding = image.depth_id ? BindingType::DepthTarget : UploadBinding(image);
 	const auto  upload  = [&](std::vector<vk::BufferImageCopy>& copies, TileManager::Result linear) {
@@ -2389,8 +2402,15 @@ void TextureCache::ClearImage(CommandBuffer& command, ImageId id, vk::Format for
 		view.base_layer  = range.baseArrayLayer;
 		view.layer_count = range.layerCount;
 		view.usage       = vk::ImageUsageFlagBits::eColorAttachment;
+		// The access a draw asks for on a color target (AcquireRenderTargets). Leaving only the
+		// write bit made the next draw's transition an access-only barrier that ends its render
+		// pass (the kind KYTY_GPU_STATS lists as "transit ColorAttachment->ColorAttachment").
+		// The clear itself only writes; the extra read bit widens the destination scope and
+		// cannot drop a dependency.
 		image.Transit(vk::ImageLayout::eColorAttachmentOptimal,
-		              vk::AccessFlagBits2::eColorAttachmentWrite, {}, command.Handle());
+		              vk::AccessFlagBits2::eColorAttachmentRead |
+		                  vk::AccessFlagBits2::eColorAttachmentWrite,
+		              {}, command.Handle());
 		vk::RenderingAttachmentInfo attachment {};
 		attachment.imageView   = image.FindView(view);
 		attachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
@@ -2441,6 +2461,7 @@ void TextureCache::InvalidateMemory(uint64_t address, uint64_t size) {
 
 void TextureCache::DownloadDepth(Image& image, Buffer& destination, uint64_t destination_offset) {
 	const auto&    info             = image.info;
+	CheckBufferRange("DownloadDepth", info, destination, destination_offset, info.data.size);
 	const auto     layers           = info.resources.layers;
 	const auto     full_slice_size  = info.data.size / layers;
 	const auto     transfer_bytes   = DepthAspectTransferBytes(info.pixel_format);
@@ -2500,6 +2521,7 @@ void TextureCache::DownloadImage(Image& image, Buffer& destination, uint64_t des
 	if (!transfer.valid) {
 		EXIT("TextureCache: invalid image download transfer\n");
 	}
+	CheckBufferRange("DownloadImage", image.info, destination, destination_offset, destination_size);
 	if (transfer.depth_target) {
 		if (destination_size != image.info.data.size) {
 			EXIT("TextureCache: partial depth image download is unsupported\n");
