@@ -10347,7 +10347,7 @@ void TestMeshInputAssembly() {
     auto program = Frontend::TranslateProgram(decoded, graph, options);
     const uint32_t draw[] = {
         test.count, test.base_vertex, 7, test.width, test.address_low, 0x12, 0};
-    Inst *load = nullptr;
+    std::vector<Inst *> loads;
     for (auto &inst : *program.blocks.front()) {
       if (inst.GetOpcode() == ValueOpcode::MeshDrawParameter) {
         inst.ReplaceUsesWith(Value(draw[inst.Arg(0).U32()]));
@@ -10358,12 +10358,23 @@ void TestMeshInputAssembly() {
                                    : inst.Arg(1).U32() == 0 ? test.group : 2;
         inst.ReplaceUsesWith(Value(value));
       } else if (inst.GetOpcode() == ValueOpcode::LoadAddressU32) {
-        Check(load == nullptr, "mesh index fetch emitted duplicate loads");
-        load = &inst;
+        loads.push_back(&inst);
       }
     }
     ConstantPropagationPass(program.blocks);
-    Check(load != nullptr && load->Arg(1).Resolve().U32() == test.byte_offset &&
+    // The prolog emits the index fetch last. The loads before it read GPU-written
+    // DRAW_INDEX_INDIRECT arguments (word 3 bit 31); these draws pass CPU arguments, so those
+    // reads must be predicated off and share one memory resource distinct from the index fetch.
+    Check(!loads.empty(), "mesh prolog emitted no index fetch");
+    Inst *load = loads.back();
+    for (size_t i = 0; i + 1 < loads.size(); i++) {
+      const auto predicate = loads[i]->Arg(3).Resolve();
+      Check(predicate.IsImmediate() && !predicate.U1() &&
+                loads[i]->Flags<MemoryFlags>().index != load->Flags<MemoryFlags>().index &&
+                loads[i]->Flags<MemoryFlags>().index == loads[0]->Flags<MemoryFlags>().index,
+            "mesh prolog reads GPU draw arguments for a draw with CPU arguments");
+    }
+    Check(load->Arg(1).Resolve().U32() == test.byte_offset &&
               load->Arg(3).Resolve().U1() == test.fetch,
           "mesh index fetch address or active-lane predicate is wrong");
     const auto *resource = load->Arg(0).ResolveInstruction();
