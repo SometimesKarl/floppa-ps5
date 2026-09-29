@@ -154,3 +154,23 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   ~5 s, faster than the 2 s dwell below 400 MB allows. Off by default: it can end a session on a short
   dip that the old rule would have ridden out. Recipe entry 13.
 - Not done: commit-charge headroom (owner's commit limit ~65 GB; no evidence it is the limiting factor).
+
+### GPU test lane on lavapipe (ec6c6f7, 31b3d0a) and what it found
+- The Vulkan test harness required fragment barycentrics and image view min LOD; lavapipe has neither.
+  Both are now optional (enabled where present, unchanged on AMD). 47 of 50 ctest entries pass here.
+- 3b4c5a0: GpuTilerCpuParity showed the 2D PRT 64 KiB family (Prt64KB) tiling ~50% of bytes to wrong
+  addresses at every element size, plus 58 format/mode pairs. CPU reference and shader use the same
+  XOR bits; the shader's vector select on the ELEMENT_BYTES specialization constant was mis-evaluated by
+  Mesa. 2D PRT now uses compile-time element-size builds like the 3D families (equivalent by
+  construction). Parity passes (330 cases, 236 pairs). AMD behaviour of the old form unknown (R8).
+- df14c37: Vulkan synchronization validation found WRITE_AFTER_WRITE on the buffer download staging ring
+  (22 reports, buffer_cache_dirty_gc). Added the device-side TransferWrite->TransferWrite dependency to
+  the existing pre-copy barrier. No hazards remain in the GPU lane.
+- 31b3d0a: harness mirrors production device features (depth clamp, independent blend, clip distance,
+  depth range unrestricted) so validation reports only real issues; remaining: min-LOD views without the
+  extension (expected on lavapipe) and STENCIL_OP not set with the stencil test off (R9).
+- Pre-existing, not caused here (reproduced with the 9ceebc4 texture cache): UnifiedTextureCacheFlow and
+  RenderExecutorColorMetadataClear image-reuse failures (R7). gpu_command_lane is timing-sensitive
+  (bounded 1 ms release coalescing; fails under load, more often under validation).
+- Pitfall found and fixed in the environment: reverting the zarchive build tree without re-applying the
+  reader patch broke archive_file; CLOUD-STATE.md now says how to check.
