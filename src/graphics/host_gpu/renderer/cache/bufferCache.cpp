@@ -17,7 +17,10 @@
 #include "kernel/memory.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <utility>
@@ -461,6 +464,15 @@ BufferId BufferCache::CreateBuffer(uint64_t vaddr, uint64_t size) {
 	SetVulkanObjectNameF(m_graphics.device, buffer.Handle(),
 	                     "Kyty.GameBuffer[guest=0x{:016x} size=0x{:x}]", overlap.begin,
 	                     overlap.end - overlap.begin);
+	// KYTY_UPLOAD_LOG: large buffers (their first synchronization reads the whole guest range,
+	// which makes every page of it resident in RAM).
+	static const bool log_large = std::getenv("KYTY_UPLOAD_LOG") != nullptr;
+	if (log_large && overlap.end - overlap.begin >= 32ull * 1024 * 1024) {
+		std::printf("BufferCache: new buffer 0x%016llx %.0f MiB (asked 0x%016llx %.1f MiB)\n",
+		            static_cast<unsigned long long>(overlap.begin),
+		            static_cast<double>(overlap.end - overlap.begin) / 1048576.0,
+		            static_cast<unsigned long long>(vaddr), static_cast<double>(size) / 1048576.0);
+	}
 	for (auto it = overlap.first; it != overlap.last;) {
 		const auto old_id = (it++)->second;
 		JoinOverlap(id, old_id, !overlap.has_stream_leap);
@@ -493,6 +505,22 @@ bool BufferCache::SynchronizeBuffer(Buffer& buffer, uint64_t vaddr, uint64_t siz
 		    total_size += bytes;
 	    },
 	    [&]() noexcept { source = UploadCopies(buffer, copies, total_size); });
+	// KYTY_UPLOAD_LOG: CPU-side buffer upload volume per 10 s.
+	static const bool log_uploads = std::getenv("KYTY_UPLOAD_LOG") != nullptr;
+	if (log_uploads && total_size != 0) {
+		static uint64_t bytes = 0, calls = 0, largest = 0;
+		static auto     last  = std::chrono::steady_clock::now();
+		bytes += total_size;
+		calls++;
+		largest = std::max(largest, total_size);
+		if (std::chrono::steady_clock::now() - last >= std::chrono::seconds(10)) {
+			last = std::chrono::steady_clock::now();
+			std::printf("buffer uploads in 10 s: %.0f MiB in %llu uploads, largest %.1f MiB\n",
+			            static_cast<double>(bytes) / 1048576.0, static_cast<unsigned long long>(calls),
+			            static_cast<double>(largest) / 1048576.0);
+			bytes = calls = largest = 0;
+		}
+	}
 	if (source) {
 		KYTY_PROFILER_BLOCK("SynchronizeBuffer: record upload");
 		auto& command = m_scheduler.Current();

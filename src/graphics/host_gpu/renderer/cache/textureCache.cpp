@@ -1632,12 +1632,16 @@ void TextureCache::InitializeImage(ImageId id) {
 		} else if (changed_rows_only && image.depth_id) {
 			m_partial_misses[static_cast<size_t>(PartialMiss::Depth)]++;
 		}
+		// Only data the guest CPU wrote is worth trimming: memory GPU buffers write each frame is
+		// uploaded again right away (S19 trimmed 131 GB of such uploads in ~9 minutes).
+		const bool cpu_written_only = !image.IsBufferModified();
 		UploadImage(image, *source, source_offset, changed_rows_only);
 		image.ClearBufferModified();
 		image.dirty_write_bytes = 0;
 		// texture_ram=trim: the upload has copied the bytes; a read-only texture's guest copy can
 		// leave RAM until something touches it again.
-		if (TextureQuality::TrimRam() && !changed_rows_only && image.info.data.size >= (1u << 20) &&
+		if (TextureQuality::TrimRam() && cpu_written_only && !changed_rows_only &&
+		    image.info.data.size >= (1u << 20) &&
 		    !image.usage.render_target && !image.usage.depth_target && !image.usage.storage &&
 		    !image.IsGpuModified() && !image.depth_id) {
 			LibKernel::Memory::TrimGuestWorkingSet(image.info.data.address, image.info.data.size);
