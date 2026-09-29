@@ -206,3 +206,12 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   VirtualAlloc2/MapViewOfFile3/GetThreadDescription errors come from the MinGW header level).
 - Limits: counts pages made valid in the view read, not physical allocation; a page resident through
   the other view (guest vs backing) still counts. Recipe 19.
+
+### W5.1 guest sleeps/yields and compile-queue audit
+- Guest sleeps block on the host (Windows high-resolution waitable timer, signal poll every 10 ms);
+  PthreadYield is SwitchToThread then Sleep(0). Zero-length usleep/nanosleep only dispatch pending
+  signals and return: if Demon's Souls' workers poll that way they never give up the core. Not changed
+  without evidence; opt-in KYTY_WAIT_INVENTORY=1 counts yields and sleeps by length (recipe 20).
+- AsyncCompiler / background tasks: fire-and-forget (validation diagnostics, periodic driver-cache
+  save); Close() joins workers before Save() destroys the VkPipelineCache; the precompile/prewarm
+  thread is joined first. No defect found.

@@ -503,6 +503,48 @@ void PthreadWakeForSignal(Pthread thread) {
 
 void KernelDispatchPendingSignalForCurrentThread();
 
+// KYTY_WAIT_INVENTORY=1: how often guest threads yield or sleep, and for how long, printed every
+// 10 s. Demon's Souls' job workers spent most of their time spinning in guest code with ~15% of
+// samples in host yield/delay calls (S7, S12): this says whether they poll with zero-length sleeps
+// (which return at once here) or sleep for real.
+enum class WaitKind : uint32_t { Yield, ZeroSleep, ShortSleep, LongSleep, Count };
+static void NoteGuestWait(WaitKind kind) {
+	static const bool enabled = std::getenv("KYTY_WAIT_INVENTORY") != nullptr;
+	if (!enabled) {
+		return;
+	}
+	static std::array<std::atomic<uint64_t>, static_cast<size_t>(WaitKind::Count)> counts {};
+	static std::atomic<int64_t>                                                     start {0};
+	counts[static_cast<size_t>(kind)].fetch_add(1, std::memory_order_relaxed);
+	const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+	                        std::chrono::steady_clock::now().time_since_epoch())
+	                        .count();
+	int64_t begin = start.load(std::memory_order_relaxed);
+	if (begin == 0) {
+		start.compare_exchange_strong(begin, now, std::memory_order_relaxed);
+		return;
+	}
+	if (now - begin < 10000 || !start.compare_exchange_strong(begin, now, std::memory_order_relaxed)) {
+		return;
+	}
+	const auto take = [](std::atomic<uint64_t>& count) {
+		return static_cast<unsigned long long>(count.exchange(0, std::memory_order_relaxed));
+	};
+	const auto yields = take(counts[0]);
+	const auto zero   = take(counts[1]);
+	const auto brief  = take(counts[2]);
+	const auto longer = take(counts[3]);
+	std::printf("Guest waits (%.1f s): %llu yields, %llu zero-length sleeps, %llu sleeps < 1 ms, "
+	            "%llu longer sleeps\n",
+	            static_cast<double>(now - begin) / 1000.0, yields, zero, brief, longer);
+}
+
+static void NoteGuestSleep(uint64_t nanoseconds) {
+	NoteGuestWait(nanoseconds == 0         ? WaitKind::ZeroSleep
+	              : nanoseconds < 1000000u ? WaitKind::ShortSleep
+	                                       : WaitKind::LongSleep);
+}
+
 static void SchedulerBackoffOnce() {
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 	if (SwitchToThread() == 0) {
@@ -3605,6 +3647,7 @@ int KYTY_SYSV_ABI PthreadRename(Pthread thread, const char* name) {
 }
 
 void KYTY_SYSV_ABI PthreadYield() {
+	NoteGuestWait(WaitKind::Yield);
 	SchedulerBackoffOnce();
 }
 
@@ -3836,6 +3879,7 @@ void KYTY_SYSV_ABI KernelSetThreadDtors(thread_dtors_func_t dtors) {
 }
 
 int KYTY_SYSV_ABI KernelUsleep(KernelUseconds microseconds) {
+	NoteGuestSleep(static_cast<uint64_t>(microseconds) * 1000u);
 	SleepMicroWithSignalPoll(microseconds);
 	return OK;
 }
@@ -3862,6 +3906,7 @@ int KYTY_SYSV_ABI KernelNanosleep(const KernelTimespec* rqtp, KernelTimespec* rm
 	uint64_t nanos =
 	    static_cast<uint64_t>(rqtp->tv_sec) * 1000000000ull + static_cast<uint64_t>(rqtp->tv_nsec);
 
+	NoteGuestSleep(nanos);
 	SleepNanoWithSignalPoll(nanos);
 
 	if (rmtp != nullptr) {
