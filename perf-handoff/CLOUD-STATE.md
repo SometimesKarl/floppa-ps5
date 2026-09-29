@@ -43,18 +43,28 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
 - Linux build breakages found and fixed: Tracy link (eb8539c), allocSampler throw (b2d1654),
   Windows-only config call (1d2544c), avplayer timer link and non-copyable Pipeline in tests (625aed4).
 
-## Status (at edfa80d)
-- Milestone A: Linux build green; ctest 47/50 on lavapipe (1 environment-blocked, 2 pre-existing tests
-  that encode upstream behaviour, R7). GPU lane runs; sync validation clean. CLOUD-TEST-RESULTS.md.
-- Milestone B commits: fault report (d8b8cc9, 1d2544c), tiler buffer range checks (b2f8985), prewarm
-  integrity (e34c2ea, f1061f8), low-memory guard (04a0fdd), PRT tiler fixed-element builds (3b4c5a0),
-  download staging WAW barrier (df14c37), trim cooldown (512cc22).
-- Milestone C: persisted-cache audit done. Milestone D: differential SRT harness (d0d6aa8); W3b waits for
-  a current dune profile (recipe 2).
+## Status at end of cloud session (2026-09-29)
+- Milestone A: Linux build green; ctest 47/50 on lavapipe (kernel_file_system blocked by the
+  environment; 2 upstream tests encode behaviour this fork changed on purpose, R7). GPU lane runs with
+  Vulkan sync validation: no sync hazards left.
+- Milestone B (stability) done in this session: fault report red-zone dump; tiler buffer range checks;
+  prewarm file integrity (module hash, stale pointers, sType); low-memory guard zero reading + opt-in
+  fast stop; 2D PRT tiler fixed-element builds; download staging WAW barrier; accounting underflow no
+  longer exits; stencil dynamic state set once per command buffer.
+- Opt-in features added: low_memory_fast_stop, KYTY_RAM_ATTRIBUTION, KYTY_WAIT_INVENTORY, trim
+  cooldown (inside texture_ram=trim), explicit-LOD exclusion (inside texture_quality=reduced).
+- Tests added: pipeline_prewarm_format, low_memory_guard, differential SRT walks, explicit-LOD
+  tracking, GPU band parity, harness optional features; stale tests fixed (shader_cfg mesh prolog,
+  non-copyable Pipeline, avplayer link).
 
 ## Next (in order)
-1. (done: ce63fa2, 4a61663) texture_quality=reduced review.
-2. Opt-in RAM-burst attribution counters (W4.3): bytes the emulator first reads from never-touched guest
-   ranges per 10 s, to separate emulator-caused residency from the game's.
-3. DS loading (W5.2): bounded directory metadata cache behind a flag, with a temp-dir test.
-4. W3b compiled SRT program only after a dune profile of the current build.
+1. Owner: run the local recipe entries 10-20 on Windows (clang-cl build first; this session could only
+   syntax-check Windows code with MinGW headers).
+2. Dune profile of the current build (recipe 2), then decide on W3b compiled SRT program with the
+   differential harness in resource_materialization_tests.
+3. If recipe 20 shows zero-length sleeps from DS job workers: opt-in yield on zero sleeps.
+4. If recipe 19 shows emulator-caused residency: avoid first reads of GPU-only memory where a full
+   overwrite is proven (plan W5c).
+5. Rasterization test: set stencil state in its hand-recorded draws (validation noise only).
+6. Update the two upstream texture-cache tests for the view-format list (R7) with the next upstream
+   merge.

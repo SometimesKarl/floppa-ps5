@@ -228,3 +228,7 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
 - W5.2 directory metadata cache not done: sizes from directory enumeration (NTFS duplicated info in
   index entries) are not guaranteed current; a wrong size handed to the game is a correctness risk for
   a load-time gain that has no current profile.
+
+### Wrap-up (end of cloud session)
+- Stencil dynamic state set once per command buffer with the test off (R9). Final state, done list and
+  next steps: CLOUD-STATE.md. Local verification queue: LOCAL-TEST-RECIPE.md entries 10-20.
