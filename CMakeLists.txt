@@ -281,8 +281,10 @@ foreach(shader_name IN LISTS gpu_tiler_shader_names)
 endforeach()
 # The 3D families are also built with the element size fixed at compile time. The AMD Windows
 # driver crashed compiling the specialization-constant form (standard64_3d, 8-byte elements;
-# Demon's Souls); the fixed forms give it plain constant code.
-foreach(shader_name IN ITEMS standard4_3d standard64_3d prt_3d)
+# Demon's Souls); the fixed forms give it plain constant code. The 2D PRT family too: its
+# vector select on the specialization constant (OpSpecConstantOp Select, v4uint) produced wrong
+# addresses on Mesa lavapipe (GpuTilerCpuParity, all element sizes).
+foreach(shader_name IN ITEMS standard4_3d standard64_3d prt_3d prt)
 	foreach(element_bytes IN ITEMS 1 2 4 8 16)
 		set(shader_source "${gpu_tiler_shader_dir}/gpu_tiler_${shader_name}.comp")
 		set(shader_spv "${gpu_tiler_generated_dir}/gpu_tiler_${shader_name}_e${element_bytes}.spv")

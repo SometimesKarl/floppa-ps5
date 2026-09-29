@@ -10,6 +10,11 @@
 #include "gpu_tiler_shaders/gpu_tiler_prt_3d_e2_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_prt_3d_e4_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_prt_3d_e8_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_e1_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_e16_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_e2_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_e4_spv.h"
+#include "gpu_tiler_shaders/gpu_tiler_prt_e8_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e1_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e16_spv.h"
 #include "gpu_tiler_shaders/gpu_tiler_standard4_3d_e2_spv.h"
@@ -281,8 +286,9 @@ vk::Pipeline TileManager::GetPipeline(uint32_t slot) {
 	std::fflush(stdout);
 	const vk::SpecializationMapEntry entries[] {{0, 0, 4}, {1, 4, 4}};
 	const vk::SpecializationInfo     specialization {2, entries, sizeof(values), values};
-	// The 3D families use their compile-time element-size builds (see CMakeLists.txt): the AMD
-	// Windows driver crashed compiling the specialization-constant form.
+	// The 3D families and 2D PRT use their compile-time element-size builds (see CMakeLists.txt):
+	// the AMD Windows driver crashed compiling the specialization-constant form, and Mesa
+	// computed wrong 2D PRT addresses from it.
 	static constexpr std::array<Shader, BytesPerElementCount> standard4_3d_fixed {{
 	    {GPU_TILER_STANDARD4_3D_E1_SPV, std::size(GPU_TILER_STANDARD4_3D_E1_SPV)},
 	    {GPU_TILER_STANDARD4_3D_E2_SPV, std::size(GPU_TILER_STANDARD4_3D_E2_SPV)},
@@ -304,8 +310,17 @@ vk::Pipeline TileManager::GetPipeline(uint32_t slot) {
 	    {GPU_TILER_PRT_3D_E8_SPV, std::size(GPU_TILER_PRT_3D_E8_SPV)},
 	    {GPU_TILER_PRT_3D_E16_SPV, std::size(GPU_TILER_PRT_3D_E16_SPV)},
 	}};
+	static constexpr std::array<Shader, BytesPerElementCount> prt_fixed {{
+	    {GPU_TILER_PRT_E1_SPV, std::size(GPU_TILER_PRT_E1_SPV)},
+	    {GPU_TILER_PRT_E2_SPV, std::size(GPU_TILER_PRT_E2_SPV)},
+	    {GPU_TILER_PRT_E4_SPV, std::size(GPU_TILER_PRT_E4_SPV)},
+	    {GPU_TILER_PRT_E8_SPV, std::size(GPU_TILER_PRT_E8_SPV)},
+	    {GPU_TILER_PRT_E16_SPV, std::size(GPU_TILER_PRT_E16_SPV)},
+	}};
 	auto shader = shaders[family_index];
-	if (shader.code == GPU_TILER_STANDARD4_3D_SPV) {
+	if (shader.code == GPU_TILER_PRT_SPV) {
+		shader = prt_fixed[element_index];
+	} else if (shader.code == GPU_TILER_STANDARD4_3D_SPV) {
 		shader = standard4_3d_fixed[element_index];
 	} else if (shader.code == GPU_TILER_STANDARD64_3D_SPV) {
 		shader = standard64_3d_fixed[element_index];
