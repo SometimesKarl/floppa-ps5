@@ -1,17 +1,23 @@
 #include "common/archive.h"
+#include "common/assert.h"
 #include "common/common.h"
 #include "common/dateTime.h"
 #include "common/debug.h"
 #include "common/file.h"
 #include "common/stringUtils.h"
+#include "common/systemInfo.h"
 #include "common/threads.h"
 #include "common/virtualMemory.h"
 #include "emulator.h"
 #include "graphics/host_gpu/renderer/resolutionControl.h"
 #include "graphics/presentation/videoOut.h"
+#include "graphics/presentation/window.h"
 #include "kytyGitVersion.h"
 
+#include <algorithm>
 #include <charconv>
+#include <chrono>
+#include <thread>
 #include <cstdlib>
 #include <fstream>
 #include <cstdio>
@@ -402,11 +408,52 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 	return show_help || (!options.app0_dir.empty() && !options.elf.empty());
 }
 
+
+// Stops the emulator before Windows runs out of RAM. A 16 GB PC holding a game's 10-11 GB plus
+// other applications froze solid when free memory ran out (ASTRO BOT, Sky Garden, 173 MB free):
+// the whole machine, not just the game, had to be reset. Below 1 GB free the window title asks
+// to close other applications; below `stop_mib` for 2 s the emulator ends with a message.
+static void StartLowMemoryGuard(uint64_t stop_mib) {
+	if (stop_mib == 0) {
+		return;
+	}
+	std::thread([stop_mib] {
+		const uint64_t     warn_mib  = std::max<uint64_t>(1024, stop_mib + 512);
+		bool               warned    = false;
+		uint32_t           low_count = 0;
+		for (;;) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			const uint64_t available = Common::AvailablePhysicalMemoryMib();
+			if (available == 0) {
+				continue;
+			}
+			if (available < warn_mib) {
+				warned = true;
+				Libs::Graphics::WindowSetStatus(fmt::format(
+				    "LOW RAM: {} MB free - close other applications", available));
+			} else if (warned && available > warn_mib + 256) {
+				warned = false;
+				Libs::Graphics::WindowSetStatus({});
+			}
+			low_count = available < stop_mib ? low_count + 1 : 0;
+			if (low_count >= 4) {
+				EXIT("System RAM is almost exhausted (%llu MB free). The emulator stopped so that "
+				     "Windows does not freeze. Close other applications (browsers, Discord, "
+				     "launchers) and start the game again; in-game saves on disk are kept. "
+				     "(emulator-settings.ini: low_memory_stop_mib=%llu, 0 disables this check)\n",
+				     static_cast<unsigned long long>(available),
+				     static_cast<unsigned long long>(stop_mib));
+			}
+		}
+	}).detach();
+}
+
 // emulator-settings.ini in the working directory (the emulator's folder), one key=value per line;
 // '#' starts a comment. Environment variables override it.
 static void ApplyEmulatorSettings() {
 	std::string resolution = "auto";
 	std::string frame_cap  = "off";
+	std::string low_memory = "400";
 	if (std::ifstream file("emulator-settings.ini"); file) {
 		std::string line;
 		while (std::getline(file, line)) {
@@ -427,6 +474,8 @@ static void ApplyEmulatorSettings() {
 				resolution = trim(line.substr(equals + 1));
 			} else if (key == "frame_cap") {
 				frame_cap = trim(line.substr(equals + 1));
+			} else if (key == "low_memory_stop_mib") {
+				low_memory = trim(line.substr(equals + 1));
 			}
 		}
 	}
@@ -436,6 +485,18 @@ static void ApplyEmulatorSettings() {
 	if (const char* value = std::getenv("KYTY_FRAME_CAP"); value != nullptr) {
 		frame_cap = value;
 	}
+	if (const char* value = std::getenv("KYTY_LOW_MEMORY_STOP_MIB"); value != nullptr) {
+		low_memory = value;
+	}
+	uint64_t low_memory_mib = 400;
+	if (const auto [end, error] = std::from_chars(low_memory.data(), low_memory.data() + low_memory.size(),
+	                                             low_memory_mib);
+	    error != std::errc {} || end != low_memory.data() + low_memory.size()) {
+		::printf("emulator-settings.ini: invalid low_memory_stop_mib '%s' (MB, 0 disables)\n",
+		         low_memory.c_str());
+		low_memory_mib = 400;
+	}
+	StartLowMemoryGuard(low_memory_mib);
 	uint32_t cap = 0;
 	if (frame_cap == "30" || frame_cap == "20") {
 		cap = static_cast<uint32_t>(std::stoul(frame_cap));
