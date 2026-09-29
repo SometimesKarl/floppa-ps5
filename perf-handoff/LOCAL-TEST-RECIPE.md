@@ -24,4 +24,5 @@ Common launch (from `Performance Experiments`):
 | 5 | df00497 texture_ram=trim | DS gameplay | RAM stays below ~9 GB WS; "texture RAM trimmed" grows slowly (not tens of GB) |
 | 6 | 25aaf07 low-memory guard | normal play | title shows "LOW RAM" warning before trouble; no whole-PC freezes |
 | 7 | 0629bef APR single query | DS boot time to the cinematic vs S12 | faster, same behaviour |
-| 8 | Upstream merges (8560b11 etc.) | ASTRO desert + dune, DS cinematic | no new errors, visuals correct |
+| 8 | e49dd65 fault handler | any crash: the report ends with one "Unhandled host exception" (or one "nested host exception" line), no repeated fault contexts | single clean report |
+| 9 | Upstream merges (8560b11 etc.) | ASTRO desert + dune, DS cinematic | no new errors, visuals correct |

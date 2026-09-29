@@ -123,6 +123,7 @@ unverified, **R** reverted, **O** opt-in (off by default).
 | fc8a947 | GPU stats: render-pass breaks attributed to image transitions | V (found the DS depth issue) |
 | f701283 / df00497 | texture_ram=trim (VirtualUnlock uploaded CPU-written textures) | O, M: DS gameplay fits in RAM (S20) |
 | 9c52585 | depth target sampled read-only: one access for both transitions | U (targets 673 breaks/s) |
+| e49dd65 | fault handler: no re-entry while reporting, bounded backtrace walk | U (fatal path only) |
 
 Rejected with data: graphics pipeline library fast link (link ~= full compile on this driver),
 spirv-opt (-10% compile for +90% CPU), branchless guarded loads (-9% compile but invalidates driver

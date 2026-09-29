@@ -9,3 +9,9 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   local deps cache on the owner's PC). Linux build not tried for our changes yet: do that first.
 - Build of HEAD for the owner: `perf-handoff/builds/9c52585/` (exe, manifest, zipped pdb).
 - Next: W1.1 (re-entrant fault handler), then the rest of the backlog in order.
+
+## Local follow-up after the handoff (2026-09-29, owner's PC)
+- e49dd65 (W1.1 done): fault handler no longer re-enters while reporting (thread-local guard, single
+  line then std::_Exit(3)); host backtrace walk uses the no-unwind-data leaf guess only for the first
+  frame and checks 512 readable bytes at rsp before each RtlVirtualUnwind. Built on Windows; staged as
+  `Performance Experiments/builds/e49dd65-clangcl`. Not exercised (needs a fault). Next agent: W1.2.
