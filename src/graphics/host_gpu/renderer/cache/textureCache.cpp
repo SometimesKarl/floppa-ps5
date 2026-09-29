@@ -2707,20 +2707,34 @@ void TextureCache::EmergencyCollect(uint64_t tick, bool critical) {
 	const auto budget = m_graphics.GetTotalMemoryBudget();
 	const auto target = budget - std::min<uint64_t>(budget / 4, 1536ull * 1024 * 1024);
 	std::vector<ImageId> candidates;
+	std::vector<ImageId> written_candidates;
 	std::vector<size_t>  kept;
 	size_t               scanned = 0;
+	// Seconds are not enough at low frame rates: Demon's Souls at ~3.5 FPS lost images it uses
+	// every few frames (S12: 3,006 emergency frees and 1.9 GB written back per 30 s, each image
+	// re-created and re-uploaded right after). Images looked up in the last 8 guest frames stay.
+	const auto frame = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
+	const auto recent = [&](const Image& image) {
+		return frame != 0 && image.frame_accessed_last != UINT64_MAX &&
+		       frame - image.frame_accessed_last < 8;
+	};
 	m_lru_cache.ForEachItemBelow(idle_tick, [&](ImageId id) {
 		const auto* owner = m_slot_images.try_get(id);
 		if (owner != nullptr && owner->registered) {
-			// Kept rather than dropped: GPU-written images that cannot be written back.
-			if (owner->depth_id || !CanPreserveForEviction(*owner)) {
+			// Kept rather than dropped: GPU-written images that cannot be written back, and
+			// images in use in recent frames.
+			if (owner->depth_id || !CanPreserveForEviction(*owner) || recent(*owner)) {
 				kept.push_back(owner->lru_id);
+			} else if (owner->IsGpuModified()) {
+				// Last: these cost a write-back to guest memory before they can go.
+				written_candidates.push_back(id);
 			} else {
 				candidates.push_back(id);
 			}
 		}
 		return ++scanned >= 8192;
 	});
+	candidates.insert(candidates.end(), written_candidates.begin(), written_candidates.end());
 	// Writing images back costs a GPU copy and a CPU copy each; spread over collections so that
 	// running out of video memory does not turn into a long stall instead.
 	uint64_t preserve_budget = EvictionDownloadMax * 2;
