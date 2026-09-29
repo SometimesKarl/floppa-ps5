@@ -103,6 +103,7 @@ public:
 		for (const auto& [_, entry]: m_maps) {
 			UnmapViewPreservePlaceholder(reinterpret_cast<void*>(entry.vaddr), entry.size);
 		}
+		m_map_generation.fetch_add(1, std::memory_order_release);
 		m_maps.clear();
 		if (m_backing_base != nullptr) {
 			UnmapViewOfFile(m_backing_base);
@@ -115,6 +116,7 @@ public:
 			EXIT_IF(
 			    !UnmapViewPreservePlaceholder(reinterpret_cast<void*>(entry.vaddr), entry.size));
 		}
+		m_map_generation.fetch_add(1, std::memory_order_release);
 		m_maps.clear();
 		if (m_backing_base != nullptr) {
 			munmap(m_backing_base, m_size);
@@ -174,6 +176,30 @@ public:
 		                          [source](uint8_t* backing, uint64_t data_offset, size_t bytes) {
 			                          std::memcpy(backing, source + data_offset, bytes);
 		                          });
+	}
+
+	// The backing bytes of [vaddr, vaddr + size) when one mapping holds them, and the mapping
+	// generation they were found under (nullptr: not mapped, or split across mappings). The
+	// pointer is into the backing view, valid for the process; the mapping may change later
+	// (compare MapGeneration()).
+	const uint8_t* TryGetBackingPointer(uint64_t vaddr, uint64_t size, uint64_t* generation) {
+		if (!IsAvailable() || size == 0 || UINT64_MAX - vaddr < size) {
+			return nullptr;
+		}
+		std::lock_guard lock(m_mutex);
+		MapEntry        entry {};
+		if (!FindContainingUnlocked(vaddr, size, &entry)) {
+			return nullptr;
+		}
+		const auto offset = entry.backing_offset + vaddr - entry.vaddr;
+		if (!RangeOk(offset, size)) {
+			return nullptr;
+		}
+		*generation = m_map_generation.load(std::memory_order_acquire);
+		return m_backing_base + offset;
+	}
+	[[nodiscard]] uint64_t MapGeneration() const {
+		return m_map_generation.load(std::memory_order_acquire);
 	}
 
 	bool TryReadBacking(uint64_t vaddr, void* data, uint64_t size) {
@@ -245,6 +271,7 @@ public:
 
 		{
 			std::lock_guard lock(m_mutex);
+			m_map_generation.fetch_add(1, std::memory_order_release);
 			EXIT_IF(!m_maps.emplace(vaddr, MapEntry {vaddr, size, backing_offset, mode}).second);
 		}
 		SetFailure(failure_reason, FailureReason::None);
@@ -256,6 +283,7 @@ public:
 		}
 		{
 			std::lock_guard lock(m_mutex);
+			m_map_generation.fetch_add(1, std::memory_order_release);
 			EXIT_IF(!m_maps.emplace(vaddr, MapEntry {vaddr, size, backing_offset, mode}).second);
 		}
 		SetFailure(failure_reason, FailureReason::None);
@@ -346,6 +374,7 @@ public:
 				if (vaddr + size <= entry->second.vaddr + entry->second.size) {
 					old = entry->second;
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+					m_map_generation.fetch_add(1, std::memory_order_release);
 					m_maps.erase(entry);
 #endif
 				}
@@ -368,6 +397,7 @@ public:
 			    UnmapViewPreservePlaceholder(reinterpret_cast<void*>(old.vaddr), old.size);
 			if (!unmapped) {
 				std::lock_guard lock(m_mutex);
+				m_map_generation.fetch_add(1, std::memory_order_release);
 				m_maps.emplace(old.vaddr, old);
 				return false;
 			}
@@ -416,6 +446,7 @@ public:
 			return false;
 		}
 		std::lock_guard lock(m_mutex);
+		m_map_generation.fetch_add(1, std::memory_order_release);
 		m_maps.emplace(old.vaddr, old);
 		return false;
 #else
@@ -426,12 +457,15 @@ public:
 		}
 
 		std::lock_guard lock(m_mutex);
+		m_map_generation.fetch_add(1, std::memory_order_release);
 		m_maps.erase(old.vaddr);
 		if (left_size != 0) {
+			m_map_generation.fetch_add(1, std::memory_order_release);
 			m_maps.emplace(old.vaddr,
 			               MapEntry {old.vaddr, left_size, old.backing_offset, old.mode});
 		}
 		if (right_size != 0) {
+			m_map_generation.fetch_add(1, std::memory_order_release);
 			m_maps.emplace(right_addr,
 			               MapEntry {right_addr, right_size,
 			                         old.backing_offset + right_addr - old.vaddr, old.mode});
@@ -647,6 +681,8 @@ private:
 #endif
 
 	uint8_t*                     m_backing_base = nullptr;
+	// Advances whenever a mapping is added or removed (TryGetBackingPointer callers revalidate).
+	std::atomic<uint64_t>        m_map_generation {1};
 	uint64_t                     m_size         = 0;
 	std::mutex                   m_mutex;
 	std::map<uint64_t, MapEntry> m_maps;
@@ -742,6 +778,11 @@ public:
 	bool TryReadBacking(uint64_t vaddr, void* data, uint64_t size) {
 		return m_backing->TryReadBacking(vaddr, data, size);
 	}
+
+	const uint8_t* TryGetBackingPointer(uint64_t vaddr, uint64_t size, uint64_t* generation) {
+		return m_backing->TryGetBackingPointer(vaddr, size, generation);
+	}
+	[[nodiscard]] uint64_t BackingMapGeneration() const { return m_backing->MapGeneration(); }
 
 	bool TryReadSparseBacking(uint64_t vaddr, void* data, uint64_t size) {
 		return m_backing->TryReadSparseBacking(vaddr, data, size);

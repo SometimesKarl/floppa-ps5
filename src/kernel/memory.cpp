@@ -15,6 +15,7 @@
 #include <atomic>
 #include <bit>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <magic_enum.hpp>
@@ -880,7 +881,87 @@ bool TryReadBacking(uint64_t vaddr, void* data, uint64_t size) {
 	       g_guest_address_space->TryReadBacking(vaddr, data, size);
 }
 
+namespace {
+
+// GpuCleanReadScope: 4 KiB pages found wholly GPU-clean during one scope, with their backing
+// bytes. Inside a scope no GPU command is recorded, and only the GPU thread records the writes
+// that make memory GPU-dirty or images GPU-modified, so a page clean at its first read stays
+// clean until the scope ends. A mapping change is caught by the backing map generation.
+struct CleanPage {
+	uint64_t       page       = UINT64_MAX;
+	uint64_t       scope      = 0;
+	uint64_t       generation = 0;
+	const uint8_t* backing    = nullptr;
+};
+constexpr uint64_t                   CleanPageBytes = 4096;
+thread_local std::array<CleanPage, 16> t_clean_pages;
+thread_local uint64_t                  t_clean_scope = 0;
+thread_local uint32_t                  t_clean_depth = 0;
+
+} // namespace
+
+GpuCleanReadScope::GpuCleanReadScope() {
+	if (t_clean_depth++ == 0) {
+		t_clean_scope++;
+	}
+}
+
+GpuCleanReadScope::~GpuCleanReadScope() {
+	if (--t_clean_depth == 0) {
+		// Entries of this scope never serve a read outside it.
+		t_clean_scope++;
+	}
+}
+
+static bool TryReadGpuCleanBackingUncached(uint64_t vaddr, void* data, uint64_t size);
+
 bool TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size) {
+	const uint64_t page = vaddr / CleanPageBytes;
+	if (t_clean_depth == 0 || g_gpu_resources == nullptr || g_guest_address_space == nullptr ||
+	    size == 0 || UINT64_MAX - vaddr < size || (vaddr + size - 1) / CleanPageBytes != page ||
+	    !Graphics::GuestGpu::IsGpuThread()) {
+		return TryReadGpuCleanBackingUncached(vaddr, data, size);
+	}
+	auto& slot = t_clean_pages[page % t_clean_pages.size()];
+	if (slot.scope != t_clean_scope || slot.page != page ||
+	    slot.generation != g_guest_address_space->BackingMapGeneration()) {
+		slot            = {};
+		const auto base = page * CleanPageBytes;
+		// Pages outside the GPU range, or with any GPU-dirty or GPU-modified byte, keep the
+		// exact per-read path.
+		if (!IsGpuAddressRange(base, CleanPageBytes) ||
+		    GetGpuResources().GetBufferCache().HasGpuDirtyBytes(base, CleanPageBytes) ||
+		    GetGpuResources().GetTextureCache().IsRegionGpuModified(base, CleanPageBytes)) {
+			return TryReadGpuCleanBackingUncached(vaddr, data, size);
+		}
+		uint64_t   generation = 0;
+		const auto backing    = g_guest_address_space->TryGetBackingPointer(base, CleanPageBytes,
+		                                                                    &generation);
+		if (backing == nullptr) {
+			return TryReadGpuCleanBackingUncached(vaddr, data, size);
+		}
+		slot = {page, t_clean_scope, generation, backing};
+	}
+	std::memcpy(data, slot.backing + (vaddr - page * CleanPageBytes), size);
+	// KYTY_CLEAN_READ_VERIFY=1: every cached read is repeated through the exact path.
+	static const bool verify = std::getenv("KYTY_CLEAN_READ_VERIFY") != nullptr;
+	if (verify && size <= 256) {
+		static uint64_t reads      = 0;
+		static uint64_t mismatches = 0;
+		std::array<uint8_t, 256> exact {};
+		const bool ok = TryReadGpuCleanBackingUncached(vaddr, exact.data(), size);
+		const bool mismatch = !ok || std::memcmp(exact.data(), data, size) != 0;
+		mismatches += mismatch ? 1u : 0u;
+		if ((++reads & 0xfffffu) == 0 || (mismatch && mismatches <= 16)) {
+			std::printf("clean-read verify: %llu cached reads, %llu mismatches\n",
+			            static_cast<unsigned long long>(reads),
+			            static_cast<unsigned long long>(mismatches));
+		}
+	}
+	return true;
+}
+
+static bool TryReadGpuCleanBackingUncached(uint64_t vaddr, void* data, uint64_t size) {
 	if (g_gpu_resources != nullptr && IsGpuAddressRange(vaddr, size)) {
 		if (!Graphics::GuestGpu::IsGpuThread() ||
 		    GetGpuResources().GetBufferCache().HasGpuDirtyBytes(vaddr, size) ||

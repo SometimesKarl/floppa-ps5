@@ -115,6 +115,16 @@ int MapAutomaticMemory(uint64_t vaddr, size_t size, int type, int prot);
 bool                   TryWriteBacking(uint64_t vaddr, const void* data, uint64_t size);
 bool                   TryReadBacking(uint64_t vaddr, void* data, uint64_t size);
 bool                   TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size);
+// While one is alive on the GPU thread (one SRT walk with its memo checks), TryReadGpuCleanBacking
+// remembers 4 KiB pages found wholly GPU-clean and reads them directly: the per-read GPU-dirty,
+// image and mapping lookups ran for every word of every draw's resource walk.
+class GpuCleanReadScope {
+public:
+	GpuCleanReadScope();
+	~GpuCleanReadScope();
+	GpuCleanReadScope(const GpuCleanReadScope&)            = delete;
+	GpuCleanReadScope& operator=(const GpuCleanReadScope&) = delete;
+};
 // For reads that used to dereference guest memory directly and only need to avoid the fault that
 // drains the GPU queue: reads pages that are not read-protected directly (a lock-free page-state
 // check), otherwise tries TryReadGpuCleanBacking. False: read through the guest address.

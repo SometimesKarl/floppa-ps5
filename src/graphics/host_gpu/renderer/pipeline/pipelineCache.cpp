@@ -620,7 +620,10 @@ struct PipelineCache::ProgramCache {
 		    .read_specialization_memory = ReadShaderGuestMemory,
 		};
 		if (entry != programs.end()) {
-			MaterializeCached(entry->second, user_data, params.Base());
+			{
+				const Libs::LibKernel::Memory::GpuCleanReadScope clean_reads;
+				MaterializeCached(entry->second, user_data, params.Base());
+			}
 			if (const auto permutation = std::ranges::find_if(
 			        entry->second.permutations, [&](const Permutation& candidate) {
 				        const auto& layout = candidate.program.bindings;
