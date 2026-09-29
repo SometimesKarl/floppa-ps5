@@ -590,6 +590,11 @@ struct ResourcePlan {
 	// Decoded roots (SrtWalker::DecodeRoot) of descriptor dwords and flat-buffer reads.
 	mutable std::vector<std::array<uint64_t, 8>>       descriptor_roots;
 	mutable std::vector<uint64_t>                      flat_roots;
+	// SrtWalker::FindActiveSources, derived once per plan: the activity of every descriptor
+	// source before any block is visited (sources outside all blocks are always active), and
+	// the decoded roots of the block conditions (0: not decoded yet).
+	mutable std::vector<uint8_t>                       active_base;
+	mutable std::vector<uint64_t>                      condition_roots;
 };
 
 struct Program: ResourcePlan {

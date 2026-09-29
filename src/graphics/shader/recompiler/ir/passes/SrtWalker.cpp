@@ -1457,35 +1457,62 @@ bool SrtWalker::EvaluateDescriptor(uint32_t source, DescriptorValue& result) {
 }
 
 std::span<const uint8_t> SrtWalker::FindActiveSources() {
-	if (m_program.control_flow.empty()) {
+	const auto& blocks = m_program.control_flow;
+	if (blocks.empty()) {
 		return {};
 	}
-	auto& active = m_program.active_sources;
-	active.assign(m_program.descriptor_sources.size(), 1u);
-	for (const auto& block: m_program.control_flow) {
-		for (const auto source: block.sources) {
-			active.at(source) = 0u;
+	// The block graph is fixed per plan: build the starting activity once, checking every
+	// source and successor index there (out_of_range as before), so the per-draw walk below
+	// indexes without checks. Rebuilding it and resolving each condition's IR value on every
+	// draw was a visible share of ASTRO BOT's dune profile (~14k small draws a second).
+	auto& base = m_program.active_base;
+	if (base.size() != m_program.descriptor_sources.size() ||
+	    m_program.condition_roots.size() != blocks.size()) {
+		std::vector<uint8_t> built(m_program.descriptor_sources.size(), 1u);
+		for (const auto& block: blocks) {
+			for (const auto source: block.sources) {
+				built.at(source) = 0u;
+			}
+			for (const auto successor: block.successors) {
+				(void)blocks.at(successor);
+			}
 		}
+		base = std::move(built);
+		m_program.condition_roots.assign(blocks.size(), 0);
 	}
+	auto& active = m_program.active_sources;
+	active.assign(base.begin(), base.end());
 	auto& visited = m_program.visited_blocks;
 	auto& pending = m_program.pending_blocks;
-	visited.assign(m_program.control_flow.size(), 0u);
+	visited.assign(blocks.size(), 0u);
 	pending.clear();
 	pending.push_back(0u);
 	while (!pending.empty()) {
 		const auto index = pending.back();
 		pending.pop_back();
-		if (visited.at(index)) {
+		if (visited[index]) {
 			continue;
 		}
 		visited[index] = 1u;
-		const auto& block = m_program.control_flow[index];
+		const auto& block = blocks[index];
 		for (const auto source: block.sources) {
 			active[source] = 1u;
 		}
 		uint32_t condition = 0;
-		if (!block.condition.IsEmpty() && m_runtime.read_specialization_memory != nullptr &&
-		    Evaluate(block.condition, condition)) {
+		bool     decided   = false;
+		if (!block.condition.IsEmpty() && m_runtime.read_specialization_memory != nullptr) {
+			if (m_fast) {
+				// The decoded root evaluates the same node as Evaluate(block.condition).
+				auto& root = m_program.condition_roots[index];
+				if (root == 0) {
+					root = DecodeRoot(block.condition);
+				}
+				decided = EvaluateRoot(root, condition);
+			} else {
+				decided = Evaluate(block.condition, condition);
+			}
+		}
+		if (decided) {
 			pending.push_back(block.successors[condition != 0u ? 0u : 1u]);
 		} else {
 			pending.insert(pending.end(), block.successors.begin(), block.successors.end());
