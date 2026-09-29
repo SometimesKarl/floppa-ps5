@@ -347,7 +347,15 @@ void TextureCache::UnregisterImage(ImageId id) {
 	m_lru_cache.Free(image.lru_id);
 	const auto accounted = image.AccountedSize();
 	if (accounted > m_total_used_memory) {
-		EXIT("TextureCache: image accounting underflow\n");
+		// With a memory budget the collector replaces this total with the driver's device-local
+		// usage every tick, which leaves out images placed in system memory once video memory is
+		// full and counts reduced-quality images at their host size, below their guest size. Frees
+		// after such a refresh can exceed it: the estimate bottoms out until the next refresh.
+		// Without a budget the total is the sum of registered images, so an underflow is a bug.
+		if (!m_graphics.CanReportMemoryUsage()) {
+			EXIT("TextureCache: image accounting underflow\n");
+		}
+		m_total_used_memory = accounted;
 	}
 	m_total_used_memory -= accounted;
 	image.registered = false;
