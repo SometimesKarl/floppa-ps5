@@ -565,7 +565,17 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 		image.binding.attachment_layout = layout;
 		image.binding.attachment_access = access;
 		const auto& view                = depth.desc.view_info;
-		image.Transit(layout, access,
+		// A draw that also samples this target (deferred lighting reading depth while marking
+		// stencil, soft particles) binds it as a texture with the attachment access plus shader
+		// reads (PrepareBindings). Asking for that same access here stops consecutive draws from
+		// alternating between two accesses, each change a barrier that ended the render pass
+		// (Demon's Souls gameplay: 673 of 831 passes a second). Only when the sampled aspects are
+		// read-only in this layout: a draw sampling an aspect it writes keeps its barriers.
+		const bool sampled_read_only = sampled_aspects && !feedback_aspects &&
+		                               !(sampled_aspects & DepthWritableAspects(layout));
+		const auto transit_access =
+		    sampled_read_only ? access | vk::AccessFlagBits2::eShaderRead : access;
+		image.Transit(layout, transit_access,
 		              ImageSubresourceRange {view.base_level, view.level_count, view.base_layer,
 		                                     view.layer_count},
 		              buffer.Handle());
