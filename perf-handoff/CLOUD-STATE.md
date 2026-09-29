@@ -39,7 +39,11 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
 - Linux build breakages found and fixed: Tracy link (eb8539c), allocSampler throw (b2d1654),
   Windows-only config call (1d2544c), avplayer timer link and non-copyable Pipeline in tests (625aed4).
 
-## Status
-- W0 build: running; tests not yet run (see CLOUD-TEST-RESULTS.md once done).
-- Next exact step: after the build finishes, reconfigure (workaround above), rebuild with `-k 0`,
-  run `ctest --test-dir _Build/linux-no-qt --output-on-failure --timeout 300 -j1`, record counts.
+## Status (at e2c55da)
+- Milestone A done: Linux build green (kyty_emulator links), ctest 34 passed / 16 blocked by the
+  environment (lavapipe lacks fragment barycentrics) / 0 failed. Details: CLOUD-TEST-RESULTS.md.
+- Milestone B (stability) commits: d8b8cc9+1d2544c fault report, b2f8985 tiler buffer range checks,
+  e34c2ea+f1061f8 prewarm file integrity, 04a0fdd low-memory guard zero reading + opt-in fast stop.
+- Milestone C: persisted-cache audit done (session log). Milestone D: differential SRT harness
+  d0d6aa8; W3b not started (needs a current dune profile first, recipe entry 2).
+- Next: see "Next" in CLOUD-SESSION-LOG.md.
