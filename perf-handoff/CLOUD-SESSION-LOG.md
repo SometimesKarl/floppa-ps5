@@ -215,3 +215,16 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
 - AsyncCompiler / background tasks: fire-and-forget (validation diagnostics, periodic driver-cache
   save); Close() joins workers before Save() destroys the VkPipelineCache; the precompile/prewarm
   thread is joined first. No defect found.
+
+### Partial-upload band parity (GPU lane)
+- No test covered partial render-target uploads (ce95f9f, deployed) or the opt-in extended bands
+  (KYTY_PARTIAL_UPLOADS_EXT, S17 freeze suspect). New GpuTilerBandParity (gpu_tiler test): for
+  RenderTarget64KB and Standard64KB at 1-16 byte elements, bands built as UploadImage builds them
+  (tiled_offset/tiled_size/tiled_height/height/linear_size, whole tiled buffer as source) detile to
+  exactly the bytes of those rows of the whole level: 92 bands on lavapipe. Mutation: render-target
+  bands starting off the 128-row grouping mismatch (family 7, 8 B, block row 1), so the alignment
+  ChangedRowBand enforces is required and the test detects its loss. Band bounds math reviewed:
+  bands never pass block_rows * row_bytes <= tiled_size, and TileManager::Prepare re-validates.
+- W5.2 directory metadata cache not done: sizes from directory enumeration (NTFS duplicated info in
+  index entries) are not guaranteed current; a wrong size handed to the game is a correctness risk for
+  a load-time gain that has no current profile.

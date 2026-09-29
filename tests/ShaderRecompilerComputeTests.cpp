@@ -15020,6 +15020,123 @@ public:
     return pixel;
   }
 
+  // Partial render-target uploads (TextureCache::UploadImage, ChangedRowBand) detile a band of
+  // block rows on its own, with rows counted from the band: render-target tiling in groups of
+  // 128 rows, standard 64 KiB tiling (KYTY_PARTIAL_UPLOADS_EXT) from any block row. Each band
+  // must convert to exactly the same bytes as those rows of the whole level.
+  void CheckGpuTilerBandParity() {
+    constexpr const char *name = "GpuTilerBandParity";
+    EnsureRuntimeContext();
+    CommandScheduler scheduler(Renderer(), m_runtime_context);
+    HW::Context registers{};
+    HW::UserConfig user_config{};
+    HW::Shader shaders{};
+    scheduler.Begin(registers, user_config, shaders);
+    StreamBuffer parameters(m_runtime_context, scheduler, MemoryUsage::Stream, 1u << 20);
+    TileManager tile_manager(m_runtime_context, scheduler, parameters);
+    const auto align_dword = [](uint64_t size) { return (size + 3u) & ~uint64_t{3u}; };
+    const auto detile = [&](const std::vector<uint8_t> &tiled, uint64_t linear_size,
+                            const GpuTileInfo &info) {
+      const uint64_t padded_tiled = align_dword(tiled.size());
+      const uint64_t padded_linear = align_dword(linear_size);
+      std::vector<u32> words(static_cast<size_t>(padded_tiled / sizeof(u32)), 0);
+      std::memcpy(words.data(), tiled.data(), tiled.size());
+      auto input = CreateHostBuffer(name, padded_tiled, AllFlags, words);
+      auto output = CreateHostBuffer(
+          name, padded_linear, AllFlags,
+          std::vector<u32>(static_cast<size_t>(padded_linear / sizeof(u32)), 0xabababab));
+      const auto result = tile_manager.Detile(input.buffer, 0, padded_tiled, padded_linear,
+                                              std::span<const GpuTileInfo>(&info, 1));
+      const vk::BufferCopy copy{result.offset, 0, padded_linear};
+      scheduler.Current().Handle().copyBuffer(result.buffer, output.buffer, 1, &copy);
+      vk::BufferMemoryBarrier barrier{};
+      barrier.sType = vk::StructureType::eBufferMemoryBarrier;
+      barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+      barrier.dstAccessMask = vk::AccessFlagBits::eHostRead;
+      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.buffer = output.buffer;
+      barrier.size = padded_linear;
+      scheduler.Current().Handle().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                                   vk::PipelineStageFlagBits::eHost, {}, 0,
+                                                   nullptr, 1, &barrier, 0, nullptr);
+      scheduler.Finish();
+      const auto out_words =
+          ReadBuffer(name, output, static_cast<size_t>(padded_linear / sizeof(u32)));
+      std::vector<uint8_t> linear(static_cast<size_t>(linear_size));
+      std::memcpy(linear.data(), out_words.data(), linear.size());
+      DestroyBuffer(&output);
+      DestroyBuffer(&input);
+      return linear;
+    };
+
+    uint32_t bands_checked = 0;
+    uint32_t seed = 0x5eed0001u;
+    for (const auto family : {TileBlockFamily::RenderTarget64KB, TileBlockFamily::Standard64KB}) {
+      for (u32 bpe = 1; bpe <= 16; bpe <<= 1u) {
+        TileBlockLayout block{};
+        if (!TileGetBlockLayout(family, bpe, block)) {
+          continue;
+        }
+        const bool render_target = family == TileBlockFamily::RenderTarget64KB;
+        const u32 pitch = block.block_width * 2u;
+        const u32 block_rows = 5u;
+        const u32 height = block.block_height * block_rows;
+        const uint64_t row_bytes = 2ull * block.block_size;
+        const uint64_t tiled_size = row_bytes * block_rows;
+        const uint64_t line = static_cast<uint64_t>(pitch) * bpe;
+        std::vector<uint8_t> tiled(static_cast<size_t>(tiled_size));
+        for (auto &byte : tiled) {
+          seed = seed * 1664525u + 1013904223u;
+          byte = static_cast<uint8_t>(seed >> 24u);
+        }
+        GpuTileInfo whole{};
+        whole.family = family;
+        whole.bytes_per_element = bpe;
+        whole.tiled_size = tiled_size;
+        whole.linear_size = line * height;
+        whole.width = pitch;
+        whole.height = height;
+        whole.depth = 1;
+        whole.pitch = pitch;
+        whole.surface_z = render_target ? 3 : 0;
+        const auto reference = detile(tiled, whole.linear_size, whole);
+
+        const u32 group = render_target ? std::max<u32>(128u / block.block_height, 1u) : 1u;
+        for (u32 first = 0; first < block_rows; first += group) {
+          for (const u32 length : {group, 2u * group}) {
+            const u32 count = std::min(length, block_rows - first);
+            // As UploadImage builds a band (textureCache.cpp).
+            auto part = whole;
+            part.tiled_offset = first * row_bytes;
+            part.tiled_size = count * row_bytes;
+            part.tiled_height = count * block.block_height;
+            part.height = count * block.block_height;
+            part.linear_offset = 0;
+            part.linear_size = line * part.height;
+            // The source is the whole tiled buffer, as in the upload.
+            const auto band = detile(tiled, part.linear_size, part);
+            const auto *expected = reference.data() + first * block.block_height * line;
+            if (std::memcmp(band.data(), expected, band.size()) != 0) {
+              size_t mismatch = 0;
+              while (band[mismatch] == expected[mismatch]) {
+                mismatch++;
+              }
+              std::ostringstream out;
+              out << "family=" << static_cast<u32>(family) << " bpe=" << bpe
+                  << " first block row=" << first << " block rows=" << count
+                  << ": first mismatch at byte " << mismatch << " of " << band.size();
+              Fail(name, "band detile", out.str());
+            }
+            bands_checked++;
+          }
+        }
+      }
+    }
+    Require(name, "bands checked", bands_checked != 0, "no band case ran");
+    std::printf("[gpu]     %-32s ok (%u bands)\n", name, bands_checked);
+  }
+
   void CheckGpuTilerCpuParity() {
     constexpr const char *name = "GpuTilerCpuParity";
     EnsureRuntimeContext();
@@ -35537,6 +35654,7 @@ int main(int argc, char **argv) {
   if (argc == 2 && std::strcmp(argv[1], "--gpu-tiler-only") == 0) {
     VulkanHarness vulkan;
     vulkan.CheckGpuTilerCpuParity();
+    vulkan.CheckGpuTilerBandParity();
     return 0;
   }
   if (argc == 2 && std::strcmp(argv[1], "--gpu-command-lane-only") == 0) {
@@ -35924,6 +36042,7 @@ int main(int argc, char **argv) {
   vulkan.CheckGpuMappedRangeLifecycle();
   vulkan.CheckStreamBufferRing();
   vulkan.CheckGpuTilerCpuParity();
+  vulkan.CheckGpuTilerBandParity();
   vulkan.CheckNativeIndirectDispatch();
   vulkan.CheckUnifiedTextureCacheFlow();
   vulkan.CheckUnifiedImageViewCache();
