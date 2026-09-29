@@ -686,12 +686,19 @@ static void PrintHostBacktrace(const void* native_context) {
 		DWORD64 image_base = 0;
 		auto*   entry      = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
 		if (entry == nullptr) {
-			if (!IsReadableRange(context.Rsp, sizeof(uint64_t))) {
+			// Guest code has no unwind data: the value at rsp is a return address only for a
+			// leaf. Past the first frame such guesses walk guest data, and unwinding the
+			// "frames" they land in faulted inside ntdll while the report was printed (DS S20).
+			if (frame != 0 || !IsReadableRange(context.Rsp, sizeof(uint64_t))) {
 				break;
 			}
 			context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
 			context.Rsp += sizeof(uint64_t);
 			continue;
+		}
+		// The unwind reads saved registers and the return address from the frame.
+		if (!IsReadableRange(context.Rsp, 512)) {
+			break;
 		}
 		void*   handler_data = nullptr;
 		DWORD64 establisher  = 0;
@@ -723,6 +730,18 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 			return true;
 		}
 	}
+	// A fault while this thread is already reporting one (the report itself failed) ends the
+	// process at once: re-entering the report recursed five times inside ntdll in DS S20.
+	thread_local int reporting = 0;
+	if (reporting != 0) {
+		std::printf("--- nested host exception while reporting a fault: type=%u code=%u "
+		            "pc=0x%016" PRIx64 " address=0x%016" PRIx64 " ---\n",
+		            static_cast<unsigned>(info->type), info->native_code, info->exception_address,
+		            info->access_violation_vaddr);
+		std::fflush(stdout);
+		std::_Exit(3);
+	}
+	reporting++;
 	// Report whatever guest context can be read safely before terminating: which guest thread
 	// faulted, the register file, the faulting code bytes and the top of its stack.
 	{
