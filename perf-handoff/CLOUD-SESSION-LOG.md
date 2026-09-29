@@ -137,3 +137,20 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   words with the same reader order as ReadRaw. shader_base and user-data count are part of the key.
 - A memo hit skips the walk's side effects; the only one, plan.specialization_reads, is consumed
   inside the same walk (WrittenBuffersDisjoint), so no stale state leaks.
+
+### f1061f8: prewarm parser hardening (Milestone C)
+- Graphics records store structs whole; replay did not rebuild PipelineViewportStateCreateInfo
+  pViewports/pScissors. Latent (the only recorder uses *WithCount dynamic state). Record side refuses,
+  parse side rejects, stored sType must match. Parser moved to pipelinePrewarmFormat.h; test 676 checks,
+  mutation-checked, ASan/UBSan clean.
+
+### Low-memory guard (W1 pressure handling)
+- Bug: AvailablePhysicalMemoryMib() returns 0 both on failure and when < 1 MiB is free, and the guard
+  skipped 0 as unknown, so the reading at the moment of exhaustion never counted. Fixed with
+  AvailablePhysicalMemoryMibIfKnown() (std::optional).
+- Rules moved into common/lowMemoryGuard.h (header-only state machine) with tests/LowMemoryGuardTests.cpp
+  (22 checks: old rules unchanged by default, zero vs unknown, warning hysteresis, fast stop).
+- Opt-in fast stop (low_memory_fast_stop=on / KYTY_LOW_MEMORY_FAST_STOP=1): S11 fell 1.8 GB -> 1 MiB in
+  ~5 s, faster than the 2 s dwell below 400 MB allows. Off by default: it can end a session on a short
+  dip that the old rule would have ridden out. Recipe entry 13.
+- Not done: commit-charge headroom (owner's commit limit ~65 GB; no evidence it is the limiting factor).

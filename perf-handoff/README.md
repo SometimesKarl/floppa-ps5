@@ -22,6 +22,7 @@ Settings live in `emulator-settings.ini` next to the exe:
 render_resolution=1080p      # legacy DRS steering (ASTRO BOT)
 frame_cap=off                # off | 30 | 20
 low_memory_stop_mib=400      # stop cleanly before Windows runs out of RAM (0 = off)
+low_memory_fast_stop=off     # on: also stop at once when RAM is nearly gone or falling fast (opt-in)
 texture_quality=full         # full | reduced (opt-in, VRAM: large sampled textures without top mip)
 texture_ram=keep             # keep | trim (opt-in, RAM: uploaded CPU-written textures leave RAM)
 ```
