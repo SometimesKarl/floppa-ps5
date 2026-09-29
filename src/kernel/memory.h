@@ -114,6 +114,10 @@ int AllocateDirectMemory(int64_t search_start, int64_t search_end, size_t size, 
 int MapAutomaticMemory(uint64_t vaddr, size_t size, int type, int prot);
 bool                   TryWriteBacking(uint64_t vaddr, const void* data, uint64_t size);
 bool                   TryReadBacking(uint64_t vaddr, void* data, uint64_t size);
+// Releases guest memory [vaddr, vaddr + size) from the process working set without discarding it
+// (Windows; no-op elsewhere): for data already copied to video memory that the guest CPU rarely
+// touches again, e.g. uploaded textures. The next access pages it back in.
+void                   TrimGuestWorkingSet(uint64_t vaddr, uint64_t size);
 bool                   TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size);
 // While one is alive on the GPU thread (one SRT walk with its memo checks), TryReadGpuCleanBacking
 // remembers 4 KiB pages found wholly GPU-clean and reads them directly: the per-read GPU-dirty,

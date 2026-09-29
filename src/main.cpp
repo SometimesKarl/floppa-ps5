@@ -456,6 +456,7 @@ static void ApplyEmulatorSettings() {
 	std::string frame_cap  = "off";
 	std::string low_memory = "400";
 	std::string texture_quality = "full";
+	std::string texture_ram     = "keep";
 	if (std::ifstream file("emulator-settings.ini"); file) {
 		std::string line;
 		while (std::getline(file, line)) {
@@ -480,6 +481,8 @@ static void ApplyEmulatorSettings() {
 				low_memory = trim(line.substr(equals + 1));
 			} else if (key == "texture_quality") {
 				texture_quality = trim(line.substr(equals + 1));
+			} else if (key == "texture_ram") {
+				texture_ram = trim(line.substr(equals + 1));
 			}
 		}
 	}
@@ -495,6 +498,10 @@ static void ApplyEmulatorSettings() {
 	if (const char* value = std::getenv("KYTY_TEXTURE_QUALITY"); value != nullptr) {
 		texture_quality = value;
 	}
+	if (const char* value = std::getenv("KYTY_TEXTURE_RAM"); value != nullptr) {
+		texture_ram = value;
+	}
+	Libs::Graphics::TextureQuality::SetTrimRam(texture_ram == "trim");
 	if (texture_quality == "reduced") {
 		Libs::Graphics::TextureQuality::SetReduced(true);
 		::printf("Texture quality: reduced (large sampled textures without their top mip level)\n");

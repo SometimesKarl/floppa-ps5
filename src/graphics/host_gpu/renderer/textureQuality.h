@@ -18,6 +18,18 @@ inline void SetReduced(bool reduced) {
 	return g_reduced.load(std::memory_order_relaxed);
 }
 
+// emulator-settings.ini texture_ram=trim (KYTY_TEXTURE_RAM): after a read-only texture of 1 MiB or
+// more is uploaded to video memory, its guest pages leave the emulator's working set (kept in the
+// pagefile, read back on the next touch). Frees the RAM copy of textures the GPU already holds.
+inline std::atomic<bool> g_trim_ram {false};
+
+inline void SetTrimRam(bool trim) {
+	g_trim_ram.store(trim, std::memory_order_relaxed);
+}
+[[nodiscard]] inline bool TrimRam() {
+	return g_trim_ram.load(std::memory_order_relaxed);
+}
+
 } // namespace Libs::Graphics::TextureQuality
 
 #endif /* EMULATOR_SRC_GRAPHICS_HOST_GPU_RENDERER_TEXTUREQUALITY_H_ */

@@ -275,6 +275,7 @@ private:
 	std::unordered_set<uint64_t> m_full_quality_addresses;
 	uint64_t                     m_reduced_images  = 0;
 	uint64_t                     m_promoted_images = 0;
+	uint64_t                     m_trimmed_bytes   = 0;
 	// KYTY_UPLOAD_LOG: why buffer-written images were uploaded whole (PartialMiss order).
 	std::array<uint64_t, 8> m_partial_misses {};
 	uint64_t m_overlap_freed = 0;

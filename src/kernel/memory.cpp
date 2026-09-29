@@ -889,6 +889,29 @@ bool TryReadBacking(uint64_t vaddr, void* data, uint64_t size) {
 	       g_guest_address_space->TryReadBacking(vaddr, data, size);
 }
 
+void TrimGuestWorkingSet(uint64_t vaddr, uint64_t size) {
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	constexpr uint64_t Page  = 4096;
+	const uint64_t     begin = (vaddr + Page - 1) & ~(Page - 1);
+	const uint64_t     end   = (vaddr + size) & ~(Page - 1);
+	if (g_guest_address_space == nullptr || size == 0 || UINT64_MAX - vaddr < size || end <= begin) {
+		return;
+	}
+	// VirtualUnlock on pages that are not locked removes them from the working set (it then
+	// reports ERROR_NOT_LOCKED). They keep their contents: the pagefile holds them once Windows
+	// needs the RAM, and the next touch reads them back. Both views of the bytes are released:
+	// the guest's, and the backing view the emulator's own reads use.
+	(void)VirtualUnlock(reinterpret_cast<void*>(begin), end - begin);
+	uint64_t generation = 0;
+	if (const auto* backing = g_guest_address_space->TryGetBackingPointer(begin, end - begin, &generation)) {
+		(void)VirtualUnlock(const_cast<uint8_t*>(backing), end - begin);
+	}
+#else
+	(void)vaddr;
+	(void)size;
+#endif
+}
+
 namespace {
 
 // GpuCleanReadScope: 4 KiB pages found wholly GPU-clean during one scope, with their backing
