@@ -26,3 +26,11 @@ Common launch (from `Performance Experiments`):
 | 7 | 0629bef APR single query | DS boot time to the cinematic vs S12 | faster, same behaviour |
 | 8 | e49dd65 fault handler | any crash: the report ends with one "Unhandled host exception" (or one "nested host exception" line), no repeated fault contexts | single clean report |
 | 9 | Upstream merges (8560b11 etc.) | ASTRO desert + dune, DS cinematic | no new errors, visuals correct |
+
+## Cloud session 2026-09-29 additions (not yet built on Windows)
+
+| # | Change | How to verify | Pass |
+|---|--------|---------------|------|
+| 10 | Fault report prints `red zone protection: enabled/disabled` and 128 bytes below rsp | Any guest fault. To test the S20 hypothesis run DS (recipe above) twice: default, and with `--redzone` | Report contains both lines. If the BPE job-worker null store (`mov [rax+0x18],r12d`, rax reloaded from `[rsp-0x10]`) stops with `--redzone`, red zone clobbering by host exception dispatch is supported. If it recurs, look for CONTEXT/EXCEPTION_RECORD patterns (0xc0000005, mxcsr 0x1f80) in the below-rsp dump |
+| 11 | `CheckBufferRange` in UploadImage / DownloadDepth / DownloadImage | Normal ASTRO desert and DS boot to gameplay | No "range outside the buffer" stop. A stop is a real out-of-range request (or a false positive): send the message, it names guest address, offset, size and buffer size. Rollback: revert the commit |
+| 12 | ClearImage aliased-format path requests ColorAttachmentRead\|Write | DS gameplay with KYTY_GPU_STATS | "transit ColorAttachmentOptimal->ColorAttachmentOptimal" count in "rendering ended by" lower than S20 (10/s at 214x120), visuals unchanged |
