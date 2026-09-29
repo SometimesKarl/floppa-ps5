@@ -402,15 +402,23 @@ static void SetGraphicsDynamicParams(const CommandBuffer& buffer, vk::CommandBuf
 	}
 
 	vk_buffer.setStencilTestEnable(depth.stencil_test_enable ? VK_TRUE : VK_FALSE);
+	const auto set_stencil = [&](vk::StencilFaceFlagBits face, const vk::StencilOpState& state) {
+		vk_buffer.setStencilOp(face, state.failOp, state.passOp, state.depthFailOp, state.compareOp);
+		vk_buffer.setStencilCompareMask(face, state.compareMask);
+		vk_buffer.setStencilWriteMask(face, state.writeMask);
+		vk_buffer.setStencilReference(face, state.reference);
+	};
 	if (depth.stencil_test_enable) {
-		const auto set_stencil = [&](vk::StencilFaceFlagBits face, const vk::StencilOpState& state) {
-			vk_buffer.setStencilOp(face, state.failOp, state.passOp, state.depthFailOp, state.compareOp);
-			vk_buffer.setStencilCompareMask(face, state.compareMask);
-			vk_buffer.setStencilWriteMask(face, state.writeMask);
-			vk_buffer.setStencilReference(face, state.reference);
-		};
 		set_stencil(vk::StencilFaceFlagBits::eFront, depth.stencil_front);
 		set_stencil(vk::StencilFaceFlagBits::eBack, depth.stencil_back);
+		buffer.MarkStencilStateSet();
+	} else if (!buffer.StencilStateSet()) {
+		// The pipelines declare the stencil state dynamic; the validation layer (1.3.275,
+		// VUID-vkCmdDraw-None-07848) wants it set in each command buffer before a draw even with
+		// the test off. Once per command buffer, not per draw; the values do nothing while off.
+		const vk::StencilOpState off {};
+		set_stencil(vk::StencilFaceFlagBits::eFrontAndBack, off);
+		buffer.MarkStencilStateSet();
 	}
 
 #if defined(__APPLE__)

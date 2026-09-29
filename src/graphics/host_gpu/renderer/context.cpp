@@ -33,6 +33,7 @@ vk::CommandBuffer CommandBuffer::Handle() const {
 void CommandBuffer::Begin() {
 	EXIT_IF(m_rendering || IsInvalid());
 	m_global_barrier_uses = UINT64_MAX;
+	m_stencil_state_set   = false;
 	auto buffer = Handle();
 
 	vk::CommandBufferBeginInfo begin_info {};

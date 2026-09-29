@@ -129,6 +129,9 @@ public:
 		return m_handle_uses != m_global_barrier_uses;
 	}
 	void MarkGlobalBarrier() const noexcept { m_global_barrier_uses = m_handle_uses; }
+	// Dynamic stencil state recorded since Begin (renderDraw.cpp SetGraphicsDynamicParams).
+	[[nodiscard]] bool StencilStateSet() const noexcept { return m_stencil_state_set; }
+	void               MarkStencilStateSet() const noexcept { m_stencil_state_set = true; }
 	[[nodiscard]] GraphicContext&   GetGraphics() const noexcept { return m_graphics; }
 	[[nodiscard]] RenderContext&    GetContext() const noexcept { return m_context; }
 	[[nodiscard]] HW::Context&      GetRegisters() const noexcept { return *m_registers; }
@@ -158,6 +161,7 @@ private:
 	uint64_t            m_debug_arg4      = 0;
 	mutable RenderState m_render_state;
 	mutable bool        m_rendering   = false;
+	mutable bool        m_stencil_state_set = false;
 	mutable uint64_t    m_handle_uses         = 0;
 	mutable uint64_t    m_global_barrier_uses = UINT64_MAX;
 	HW::Context*        m_registers   = nullptr;
