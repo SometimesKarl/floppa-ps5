@@ -174,3 +174,10 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   (bounded 1 ms release coalescing; fails under load, more often under validation).
 - Pitfall found and fixed in the environment: reverting the zarchive build tree without re-applying the
   reader patch broke archive_file; CLOUD-STATE.md now says how to check.
+
+### texture_ram=trim cooldown (W4.2 old plan / W6 new plan)
+- Trim ran after every CPU-written upload >= 1 MiB, with no memory of earlier uploads; an image the guest
+  rewrites every few frames was trimmed, faulted back in by its next upload, trimmed again (S20: 17.7 GB
+  in ~10 min). Image::frame_uploaded_last records the guest frame of each upload; trimming skips images
+  uploaded within the previous 64 guest frames. Opt-in mode only; correctness unaffected either way
+  (trimming never discards bytes). MEMORY_STATS prints the skipped bytes. Recipe entry 17.
