@@ -1251,6 +1251,18 @@ bool PartialUploadsEnabled() {
 	return enabled;
 }
 
+// KYTY_PARTIAL_UPLOADS_EXT=1: also band uploads for standard 64 KiB tiling, and one band per run
+// of changed 64ths. Off by default until runtime-verified: the first Demon's Souls run using
+// them (S17) ended in a machine freeze whose cause is not isolated. Default: render-target
+// tiling, one band from the first to the last changed 64th (verified on ASTRO BOT).
+bool PartialUploadsExtended() {
+	static const bool enabled = [] {
+		const char* value = std::getenv("KYTY_PARTIAL_UPLOADS_EXT");
+		return value != nullptr && value[0] == '1';
+	}();
+	return enabled;
+}
+
 // Why a buffer-written image was uploaded whole (KYTY_UPLOAD_LOG).
 enum class PartialMiss : uint8_t { CpuDirty, LevelsLayers, Layout, Family, BandLarge, Depth, Count };
 constexpr std::array<const char*, static_cast<size_t>(PartialMiss::Count)> PartialMissNames {
@@ -1276,7 +1288,9 @@ RowBand ChangedRowBand(const ImageInfo& info, const GpuTileInfo& tile, uint64_t 
 	RowBand         band;
 	TileBlockLayout block {};
 	const bool render_target = tile.family == TileBlockFamily::RenderTarget64KB;
-	if ((!render_target && tile.family != TileBlockFamily::Standard64KB) || tile.tail || tile.depth != 1 ||
+	if ((!render_target &&
+	     (tile.family != TileBlockFamily::Standard64KB || !PartialUploadsExtended())) ||
+	    tile.tail || tile.depth != 1 ||
 	    begin >= end || !TileGetBlockLayout(tile.family, tile.bytes_per_element, block) ||
 	    block.block_width == 0 || block.block_height == 0 || block.block_depth != 1) {
 		return band;
@@ -1355,7 +1369,13 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 			// One row band per run of changed 64ths of the image, merged where the widened bands
 			// meet.
 			const auto& tile       = transfer.tiles[0];
-			const auto  dirty      = image.BufferDirtyBands();
+			auto        dirty      = image.BufferDirtyBands();
+			if (dirty != 0 && !PartialUploadsExtended()) {
+				// One covering run, from the first to the last changed 64th.
+				const auto first = static_cast<uint32_t>(std::countr_zero(dirty));
+				const auto last  = 63u - static_cast<uint32_t>(std::countl_zero(dirty));
+				dirty = (~uint64_t {0} >> (63u - last)) & (~uint64_t {0} << first);
+			}
 			const auto  band_bytes = image.BufferDirtyBand();
 			std::array<RowBand, 64> bands {};
 			size_t                  band_count = 0;

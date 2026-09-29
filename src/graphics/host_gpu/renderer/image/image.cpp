@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <fmt/format.h>
@@ -307,9 +308,44 @@ void Image::Transit(vk::ImageLayout destination_layout, vk::AccessFlags2 destina
 	command_buffer.pipelineBarrier2(dependency);
 }
 
+// A copy outside the image reaches the GPU as an out-of-bounds access, which can hang the whole
+// machine instead of failing: stop with a message first.
+static void CheckCopyRegions(const ImageInfo& info, std::span<const vk::BufferImageCopy> copies,
+                             uint64_t offset, uint64_t size, const char* what) {
+	const uint32_t layer_count = info.IsVolume() ? 1u : info.resources.layers;
+	const auto     align       = [&](uint32_t value) {
+        return info.IsBlock() ? (value + 3u) & ~3u : value;
+	};
+	for (const auto& copy: copies) {
+		const auto& sub   = copy.imageSubresource;
+		const auto  level = sub.mipLevel;
+		const auto  w     = align(std::max(info.extent.width >> level, 1u));
+		const auto  h     = align(std::max(info.extent.height >> level, 1u));
+		const auto  d     = std::max(info.extent.depth >> level, 1u);
+		const bool  inside =
+		    level < info.resources.levels && sub.baseArrayLayer + sub.layerCount <= layer_count &&
+		    copy.imageOffset.x >= 0 && copy.imageOffset.y >= 0 && copy.imageOffset.z >= 0 &&
+		    static_cast<uint64_t>(copy.imageOffset.x) + copy.imageExtent.width <= w &&
+		    static_cast<uint64_t>(copy.imageOffset.y) + copy.imageExtent.height <= h &&
+		    static_cast<uint64_t>(copy.imageOffset.z) + copy.imageExtent.depth <= d &&
+		    copy.bufferOffset >= offset && copy.bufferOffset < offset + size;
+		if (!inside) {
+			EXIT("Image::%s: copy outside the image: guest=0x%016" PRIx64
+			     " %ux%ux%u levels=%u layers=%u; copy level=%u layers=%u+%u offset=%d,%d,%d "
+			     "extent=%ux%ux%u buffer_offset=0x%" PRIx64 " range=0x%" PRIx64 "+0x%" PRIx64 "\n",
+			     what, info.data.address, info.extent.width, info.extent.height, info.extent.depth,
+			     info.resources.levels, layer_count, level, sub.baseArrayLayer, sub.layerCount,
+			     copy.imageOffset.x, copy.imageOffset.y, copy.imageOffset.z, copy.imageExtent.width,
+			     copy.imageExtent.height, copy.imageExtent.depth,
+			     static_cast<uint64_t>(copy.bufferOffset), offset, size);
+		}
+	}
+}
+
 void Image::Upload(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffer, uint64_t offset,
                    uint64_t size) {
 	EXIT_IF(copies.empty() || buffer == nullptr || size == 0);
+	CheckCopyRegions(info, copies, offset, size, "Upload");
 	m_scheduler.EndRendering();
 	vk::BufferMemoryBarrier2 buffer_barrier {};
 	buffer_barrier.srcStageMask        = vk::PipelineStageFlagBits2::eAllCommands;
@@ -352,6 +388,7 @@ void Image::Upload(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffe
 void Image::Download(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffer,
                      uint64_t offset, uint64_t size) {
 	EXIT_IF(copies.empty() || buffer == nullptr || size == 0);
+	CheckCopyRegions(info, copies, offset, size, "Download");
 	m_scheduler.EndRendering();
 	vk::BufferMemoryBarrier2 buffer_barrier {};
 	buffer_barrier.srcStageMask = vk::PipelineStageFlagBits2::eAllCommands;
