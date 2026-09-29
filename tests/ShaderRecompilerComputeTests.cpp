@@ -64,6 +64,7 @@
 #error "classic framebuffer/render-pass cache must remain deleted"
 #endif
 
+#include <deque>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -426,9 +427,11 @@ struct RenderExecutorTestAccess {
     executor.PrepareGraphicsBindings(stages, colors);
   }
 
-  static PipelineCache::Pipeline
-  CreateDescriptorPipeline(RenderExecutor &executor,
-                           std::span<PreparedBindings *const> stages) {
+  // PipelineCache::Pipeline holds an atomic (async compiles) and cannot be copied or moved:
+  // helpers fill a pipeline the caller owns.
+  static void CreateDescriptorPipeline(RenderExecutor &executor,
+                                       std::span<PreparedBindings *const> stages,
+                                       PipelineCache::Pipeline &pipeline) {
     std::vector<vk::DescriptorSetLayoutBinding> layout_bindings;
     bool compute = false;
     for (const auto *prepared : stages) {
@@ -453,7 +456,6 @@ struct RenderExecutorTestAccess {
     descriptor_info.bindingCount =
         static_cast<uint32_t>(layout_bindings.size());
     descriptor_info.pBindings = layout_bindings.data();
-    PipelineCache::Pipeline pipeline{};
     auto &device = executor.m_context.GetGraphics().device;
     EXIT_IF(device.createDescriptorSetLayout(&descriptor_info, nullptr,
                                              &pipeline.descriptor_set_layout) !=
@@ -474,30 +476,26 @@ struct RenderExecutorTestAccess {
                                         &pipeline.pipeline_layout) !=
             vk::Result::eSuccess);
     pipeline.uses_push_descriptors = true;
-    return pipeline;
   }
 
-  static PipelineCache::Pipeline CommitBindings(RenderExecutor &executor,
-                                                CommandBuffer &buffer,
-                                                PreparedBindings &bindings) {
+  static void CommitBindingsInto(RenderExecutor &executor, CommandBuffer &buffer,
+                                 PreparedBindings &bindings,
+                                 PipelineCache::Pipeline &pipeline) {
     std::array<PreparedBindings *, 1> stages{&bindings};
-    auto pipeline = CreateDescriptorPipeline(executor, stages);
+    CreateDescriptorPipeline(executor, stages, pipeline);
     const auto bind_point = bindings.runtime->program->stage == ShaderType::Compute
                                 ? vk::PipelineBindPoint::eCompute
                                 : vk::PipelineBindPoint::eGraphics;
     executor.CommitBindings(buffer, bind_point, pipeline, stages);
-    return pipeline;
   }
 
-  static PipelineCache::Pipeline CommitBindings(RenderExecutor &executor,
-                                                CommandBuffer &buffer,
-                                                PreparedBindings &vertex,
-                                                PreparedBindings &pixel) {
+  static void CommitBindingsInto(RenderExecutor &executor, CommandBuffer &buffer,
+                                 PreparedBindings &vertex, PreparedBindings &pixel,
+                                 PipelineCache::Pipeline &pipeline) {
     std::array<PreparedBindings *, 2> stages{&vertex, &pixel};
-    auto pipeline = CreateDescriptorPipeline(executor, stages);
+    CreateDescriptorPipeline(executor, stages, pipeline);
     executor.CommitBindings(buffer, vk::PipelineBindPoint::eGraphics, pipeline,
                             stages);
-    return pipeline;
   }
 
   static void CommitBindings(RenderExecutor &executor, CommandBuffer &buffer,
@@ -511,6 +509,17 @@ struct RenderExecutorTestAccess {
   static void DestroyDescriptorPipelines(
       RenderExecutor &executor,
       std::span<const PipelineCache::Pipeline> pipelines) {
+    auto &device = executor.m_context.GetGraphics().device;
+    for (const auto &pipeline : pipelines) {
+      device.destroyPipelineLayout(pipeline.pipeline_layout, nullptr);
+      device.destroyDescriptorSetLayout(pipeline.descriptor_set_layout,
+                                        nullptr);
+    }
+  }
+
+  static void DestroyDescriptorPipelines(
+      RenderExecutor &executor,
+      const std::deque<PipelineCache::Pipeline> &pipelines) {
     auto &device = executor.m_context.GetGraphics().device;
     for (const auto &pipeline : pipelines) {
       device.destroyPipelineLayout(pipeline.pipeline_layout, nullptr);
@@ -2028,8 +2037,9 @@ public:
                 vertex.shader_data_buffer.offset == 0,
             "repeated shader binding preparation allocated or retained stale state");
 
-    const auto pipeline = RenderExecutorTestAccess::CommitBindings(
-        context.GetRenderExecutor(), scheduler.Current(), vertex, pixel);
+    PipelineCache::Pipeline pipeline;
+    RenderExecutorTestAccess::CommitBindingsInto(
+        context.GetRenderExecutor(), scheduler.Current(), vertex, pixel, pipeline);
     Require(name, "shared push data",
             vertex.shader_data ==
                     std::vector<uint32_t>{0x55555555u, 0x66666666u} &&
@@ -10449,7 +10459,7 @@ public:
       auto &texture_cache = resources.GetTextureCache();
       auto &executor = context.GetRenderExecutor();
       resources.MapMemory(base, allocation_size);
-      std::vector<PipelineCache::Pipeline> descriptor_pipelines;
+      std::deque<PipelineCache::Pipeline> descriptor_pipelines;
 
       // The virtual-texture atlas is written as raw BC3 blocks, then sampled as BC3.
       constexpr uint64_t block_alias_address = base + 0xf0000;
@@ -10635,8 +10645,8 @@ public:
                                                            null_image_id),
               "the shared null image did not preserve texture/storage "
               "acquisition without guest readback or RenderExecutor ownership");
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
-          executor, scheduler.Current(), null_bindings));
+      RenderExecutorTestAccess::CommitBindingsInto(
+          executor, scheduler.Current(), null_bindings, descriptor_pipelines.emplace_back());
       Require(name, "null descriptor general layouts",
               std::ranges::all_of(null_bindings.images,
                                   [](const auto &binding) {
@@ -11278,9 +11288,9 @@ public:
                   texture_cache.GetImage(storage_id).usage.texture,
               "the production graphics binding path did not complete vertex "
               "storage acquisition before pixel sampling");
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
+      RenderExecutorTestAccess::CommitBindingsInto(
           executor, scheduler.Current(), graphics_bindings.vertex[0],
-          *graphics_bindings.pixel));
+          *graphics_bindings.pixel, descriptor_pipelines.emplace_back());
       Require(name, "early writable alias retention",
               texture_cache.GetImage(storage_id).backing.state.access_mask ==
                   (vk::AccessFlagBits2::eShaderRead |
@@ -11318,9 +11328,9 @@ public:
               texture_cache.GetImage(storage_id).binding.force_general,
               "an already sampled image was not promoted when a later "
               "storage alias bound the same backing");
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
+      RenderExecutorTestAccess::CommitBindingsInto(
           executor, scheduler.Current(), writable_alias_bindings.vertex[0],
-          *writable_alias_bindings.pixel));
+          *writable_alias_bindings.pixel, descriptor_pipelines.emplace_back());
       Require(
           name, "forced-general descriptor capture",
           writable_alias_bindings.vertex[0].images[0].layout ==
@@ -11395,8 +11405,8 @@ public:
       split_bindings.images.push_back(
           {split_id, texture_cache.FindTexture(split_id, split_sampled_desc),
            split_sampled_desc});
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
-          executor, scheduler.Current(), split_bindings));
+      RenderExecutorTestAccess::CommitBindingsInto(
+          executor, scheduler.Current(), split_bindings, descriptor_pipelines.emplace_back());
       const auto &split_image = texture_cache.GetImage(split_id);
       Require(
           name, "per-binding subresource layouts",
@@ -11450,8 +11460,8 @@ public:
       const auto disjoint_rendering = RenderExecutorTestAccess::AcquireRenderTargets(
           executor, scheduler.Current(), &no_disjoint_color, 0, disjoint_depth,
           disjoint_stages, &disjoint_feedback);
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
-          executor, scheduler.Current(), disjoint_binding));
+      RenderExecutorTestAccess::CommitBindingsInto(
+          executor, scheduler.Current(), disjoint_binding, descriptor_pipelines.emplace_back());
       const auto &disjoint_image = texture_cache.GetImage(disjoint_depth_id);
       Require(name, "disjoint depth sampling during depth writes",
               !disjoint_feedback &&
@@ -11492,8 +11502,8 @@ public:
       const auto depth_views_rendering = RenderExecutorTestAccess::AcquireRenderTargets(
           executor, scheduler.Current(), &no_disjoint_color, 0, disjoint_depth,
           depth_views_stages, &depth_views_feedback);
-      descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
-          executor, scheduler.Current(), depth_views_binding));
+      RenderExecutorTestAccess::CommitBindingsInto(
+          executor, scheduler.Current(), depth_views_binding, descriptor_pipelines.emplace_back());
       Require(name, "overlapping and disjoint depth views",
               overlapping_view != nullptr &&
                   depth_views_feedback == vk::ImageAspectFlagBits::eDepth &&
@@ -11837,8 +11847,8 @@ public:
         const auto bounds_rendering = RenderExecutorTestAccess::AcquireRenderTargets(
             executor, scheduler.Current(), &no_color, 0, bounds_depth,
             bounds_stages, &bounds_feedback);
-        descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
-            executor, scheduler.Current(), bounds_bindings.vertex[0], *bounds_bindings.pixel));
+        RenderExecutorTestAccess::CommitBindingsInto(
+            executor, scheduler.Current(), bounds_bindings.vertex[0], *bounds_bindings.pixel, descriptor_pipelines.emplace_back());
         const auto &vertex_depth = bounds_bindings.vertex[0].images[0];
         const auto &pixel_depth = bounds_bindings.pixel->images[0];
         const auto expected_layout = pass == 0
@@ -12197,9 +12207,9 @@ public:
             RenderExecutorTestAccess::AcquireRenderTargets(
                 executor, scheduler.Current(), &no_color, 0, shared_depth,
                 shared_stages, &shared_feedback);
-        descriptor_pipelines.push_back(RenderExecutorTestAccess::CommitBindings(
+        RenderExecutorTestAccess::CommitBindingsInto(
             executor, scheduler.Current(), shared_bindings.vertex[0],
-            *shared_bindings.pixel));
+            *shared_bindings.pixel, descriptor_pipelines.emplace_back());
         const auto expected_layout =
             stencil_write
                 ? vk::ImageLayout::eAttachmentFeedbackLoopOptimalEXT
