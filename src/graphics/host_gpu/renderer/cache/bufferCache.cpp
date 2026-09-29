@@ -156,17 +156,27 @@ bool BufferCache::DownloadBufferMemory(Buffer& buffer, uint64_t vaddr, uint64_t 
 			copies.push_back({copy.src_offset, copy.dst_offset + offset, copy.size});
 		}
 
-		vk::BufferMemoryBarrier before {};
-		before.srcAccessMask =
+		vk::BufferMemoryBarrier before[2] {};
+		before[0].srcAccessMask =
 		    vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite;
-		before.dstAccessMask       = vk::AccessFlagBits::eTransferRead;
-		before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		before.buffer              = buffer.Handle();
-		before.offset              = 0;
-		before.size                = buffer.Size();
+		before[0].dstAccessMask       = vk::AccessFlagBits::eTransferRead;
+		before[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[0].buffer              = buffer.Handle();
+		before[0].offset              = 0;
+		before[0].size                = buffer.Size();
+		// The staging region was written by an earlier download copy. Its reuse already waits for
+		// that submission on the host (StreamBuffer::Map), but that is only a host-side ordering;
+		// state the device write-after-write dependency too (Vulkan synchronization validation
+		// reported WRITE_AFTER_WRITE here, buffer_cache_dirty_gc on lavapipe).
+		before[1]               = before[0];
+		before[1].srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+		before[1].dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+		before[1].buffer        = m_download_buffer.Handle();
+		before[1].offset        = offset;
+		before[1].size          = batch.total_size;
 		native.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-		                       vk::PipelineStageFlagBits::eTransfer, {}, 0, nullptr, 1, &before, 0,
+		                       vk::PipelineStageFlagBits::eTransfer, {}, 0, nullptr, 2, before, 0,
 		                       nullptr);
 		{
 			KYTY_GPU_ZONE(native, "GPU copy: buffer download");
@@ -174,7 +184,7 @@ bool BufferCache::DownloadBufferMemory(Buffer& buffer, uint64_t vaddr, uint64_t 
 			                  static_cast<uint32_t>(copies.size()), copies.data());
 		}
 
-		auto after          = before;
+		auto after          = before[0];
 		after.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 		after.dstAccessMask = vk::AccessFlagBits::eHostRead;
 		after.buffer        = m_download_buffer.Handle();
