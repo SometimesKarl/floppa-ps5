@@ -1558,7 +1558,7 @@ private:
 			if (image.source == source && image.resource_class == resource_class &&
 			    image.dimension == memory.image_dimension && image.mip_mode == mip &&
 			    image.depth_compare == depth && image.r128 == memory.image_r128) {
-				Merge(image, op, pc);
+				Merge(image, op, pc, memory.image_sample_flags);
 				return i;
 			}
 		}
@@ -1573,12 +1573,12 @@ private:
 		image.mip_mode       = mip;
 		image.depth_compare  = depth;
 		image.r128           = memory.image_r128;
-		Merge(image, op, pc);
+		Merge(image, op, pc, memory.image_sample_flags);
 		m_info.images.push_back(image);
 		return static_cast<uint32_t>(m_info.images.size() - 1);
 	}
 
-	static void Merge(ImageResource& image, ValueOpcode op, uint32_t pc) {
+	static void Merge(ImageResource& image, ValueOpcode op, uint32_t pc, uint32_t sample_flags) {
 		const auto info    = ImageOpcodeInfoOf(op);
 		const auto access  = info.access;
 		const bool atomic  = access == ImageAccess::Atomic;
@@ -1587,8 +1587,12 @@ private:
 		image.read         = image.read || !write || atomic;
 		image.written      = image.written || write;
 		image.atomic       = image.atomic || atomic;
+		// An explicit LOD names guest levels: on an image without its top level (reduced texture
+		// quality) every such sample would read one level lower. Implicit LOD, bias and explicit
+		// gradients scale with the view's size and keep selecting the same guest levels.
 		image.exact_texels = image.exact_texels || !info.needs_sampler ||
-		                     op == ValueOpcode::ImageQueryLod;
+		                     op == ValueOpcode::ImageQueryLod ||
+		                     (sample_flags & Decoder::ImageSampleFlagLod) != 0;
 	}
 
 	uint32_t AddSampler(uint32_t source, uint32_t pc) {

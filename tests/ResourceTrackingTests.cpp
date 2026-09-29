@@ -1790,6 +1790,45 @@ void TestRuntimeUnsignedMinDescriptor() {
       "runtime descriptor unsigned minimum did not preserve its first operand");
 }
 
+// Reduced texture quality (descriptors.cpp allow_reduced) drops an image's top level only when
+// every use of it keeps selecting the same guest levels: implicit LOD, bias, explicit gradients
+// (all scale with the view's size) and level zero. An explicit LOD names guest levels, so it must
+// keep the full image (exact_texels).
+void TestExplicitLodSamplesNeedExactTexels() {
+  Fixture fixture;
+  const auto image_address = fixture.ImageAddress();
+  const std::array<Value, 4> sampler_words{Value(0u), Value(1u), Value(2u), Value(0u)};
+  const std::array<uint32_t, 5> flags{0u, Decoder::ImageSampleFlagBias,
+                                      Decoder::ImageSampleFlagDerivative,
+                                      Decoder::ImageSampleFlagLevelZero,
+                                      Decoder::ImageSampleFlagLod};
+  for (uint32_t i = 0; i < flags.size(); i++) {
+    // A distinct descriptor per case, so the uses are not merged into one image.
+    std::array<Value, 8> image_words;
+    for (uint32_t word = 0; word < image_words.size(); word++) {
+      image_words[word] = fixture.UserData(i * 8u + word);
+    }
+    const uint32_t pc = 4u + i * 4u;
+    const auto image = fixture.Image(image_words, pc);
+    const auto sampler = fixture.Sampler(sampler_words, pc);
+    MemoryInfo memory;
+    memory.kind = ResourceKind::Image;
+    memory.image_dimension = Decoder::ImageDimension::Dim2D;
+    memory.image_sample_flags = flags[i];
+    fixture.Emit(ValueOpcode::ImageSampleRaw, {image, sampler, image_address},
+                 fixture.AddMemory(memory, pc));
+  }
+  fixture.PlanAndTrack();
+  const auto &images = fixture.program.info.images;
+  Check(images.size() == flags.size(), "sample-mode images were merged or dropped");
+  for (uint32_t i = 0; i < flags.size(); i++) {
+    const bool explicit_lod = (flags[i] & Decoder::ImageSampleFlagLod) != 0;
+    Check(images[i].exact_texels == explicit_lod,
+          explicit_lod ? "an explicit-LOD sample allowed a reduced image"
+                       : "an implicit-LOD, bias, gradient or level-zero sample was marked exact");
+  }
+}
+
 void TestImagesSamplersAndAliases() {
   Fixture fixture;
   std::array<Value, 8> image_words;
@@ -3168,6 +3207,7 @@ int main() {
     Run("scalar/vector alias", TestScalarAndVectorBufferAlias);
     Run("runtime unsigned min", TestRuntimeUnsignedMinDescriptor);
     Run("images and samplers", TestImagesSamplersAndAliases);
+    Run("explicit LOD keeps full textures", TestExplicitLodSamplesNeedExactTexels);
     Run("SampleAdjust sampler scratch", TestSampleAdjustSamplerScratch);
     Run("FMASK load specialization", TestFmaskLoadSpecialization);
     Run("dynamic storage mips", TestDynamicStorageMipTracking);
