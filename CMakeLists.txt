@@ -477,7 +477,8 @@ target_include_directories(avplayer_file_tests PRIVATE ${inc_headers})
 add_executable(pipeline_prewarm_format_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/PipelinePrewarmFormatTests.cpp"
 )
-target_link_libraries(pipeline_prewarm_format_tests xxhash)
+# common: generated config and fmt headers pulled in by vulkanCommon.h (header use only).
+target_link_libraries(pipeline_prewarm_format_tests common Vulkan::Headers xxhash)
 target_include_directories(pipeline_prewarm_format_tests PRIVATE ${inc_headers})
 
 add_executable(bit_array_tests EXCLUDE_FROM_ALL

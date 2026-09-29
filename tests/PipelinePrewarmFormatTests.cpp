@@ -82,12 +82,159 @@ void TestShapeChecks() {
 	Check(!DecodeModuleRecord(torn, hash, words), "torn record accepted");
 }
 
+using Libs::Graphics::PipelinePrewarm::ComputeReplay;
+using Libs::Graphics::PipelinePrewarm::GraphicsReplay;
+using Libs::Graphics::PipelinePrewarm::ParseCompute;
+using Libs::Graphics::PipelinePrewarm::ParseGraphics;
+using Libs::Graphics::PipelinePrewarm::Writer;
+
+// Same encoding as PutStruct in pipelinePrewarm.cpp: a presence byte, then the whole struct.
+template <typename T>
+void PutPresent(Writer& w, T value) {
+	w.Put(static_cast<uint8_t>(1));
+	value.pNext = nullptr;
+	w.Put(value);
+}
+
+void PutAbsent(Writer& w) {
+	w.Put(static_cast<uint8_t>(0));
+}
+
+void PutLayout(Writer& w) {
+	w.Put(uint32_t {0});           // set flags
+	w.Put(uint32_t {1});           // bindings
+	w.Put(uint32_t {0});           // binding
+	w.Put(static_cast<uint32_t>(vk::DescriptorType::eStorageBuffer));
+	w.Put(uint32_t {1});           // descriptor count
+	w.Put(static_cast<uint32_t>(vk::ShaderStageFlagBits::eFragment));
+	w.Put(static_cast<uint32_t>(vk::ShaderStageFlagBits::eVertex)); // push stages
+	w.Put(uint32_t {0});           // push offset
+	w.Put(uint32_t {16});          // push size
+}
+
+struct GraphicsFields {
+	vk::PipelineViewportStateCreateInfo      viewport {};
+	vk::PipelineRasterizationStateCreateInfo raster {};
+	vk::PipelineMultisampleStateCreateInfo   multisample {};
+	uint32_t                                 dynamic_count = 2;
+};
+
+// A record in the field order ParseGraphics reads.
+std::vector<uint8_t> GraphicsRecord(const GraphicsFields& fields) {
+	Writer w;
+	w.Put(uint32_t {0}); // flags
+	w.Put(uint32_t {2}); // stages
+	w.Put(static_cast<uint32_t>(vk::ShaderStageFlagBits::eVertex));
+	w.Put(uint64_t {0x1111});
+	w.Put(static_cast<uint32_t>(vk::ShaderStageFlagBits::eFragment));
+	w.Put(uint64_t {0x2222});
+	w.Put(static_cast<uint8_t>(1)); // vertex input
+	w.Put(uint32_t {0});            // bindings
+	w.Put(uint32_t {0});            // attributes
+	vk::PipelineInputAssemblyStateCreateInfo assembly {};
+	assembly.topology = vk::PrimitiveTopology::eTriangleList;
+	PutPresent(w, assembly);
+	PutAbsent(w); // tessellation
+	PutPresent(w, fields.viewport);
+	PutAbsent(w); // depth clip control
+	PutPresent(w, fields.raster);
+	PutAbsent(w); // depth clip
+	PutAbsent(w); // provoking vertex
+	PutPresent(w, fields.multisample);
+	PutPresent(w, vk::PipelineDepthStencilStateCreateInfo {});
+	PutPresent(w, vk::PipelineColorBlendStateCreateInfo {});
+	w.Put(uint32_t {1}); // blend attachments
+	w.Put(vk::PipelineColorBlendAttachmentState {});
+	w.Put(static_cast<uint8_t>(0)); // no color write enables
+	w.Put(static_cast<uint8_t>(1)); // dynamic states
+	w.Put(fields.dynamic_count);
+	for (uint32_t i = 0; i < fields.dynamic_count; i++) {
+		w.Put(i % 2 == 0 ? vk::DynamicState::eViewportWithCount
+		                 : vk::DynamicState::eScissorWithCount);
+	}
+	w.Put(uint32_t {0}); // view mask
+	w.Put(uint32_t {1}); // color formats
+	w.Put(vk::Format::eR8G8B8A8Unorm);
+	w.Put(vk::Format::eD32Sfloat);
+	w.Put(vk::Format::eUndefined);
+	PutLayout(w);
+	return w.data;
+}
+
+void TestGraphicsRecordRoundTrips() {
+	GraphicsReplay g;
+	Check(ParseGraphics(GraphicsRecord({}), g), "valid graphics record rejected");
+	Check(g.stages.size() == 2 && g.module_hashes[1] == 0x2222 &&
+	          g.info.stageCount == 2 && g.info.pStages == g.stages.data(),
+	      "stages not restored");
+	Check(g.info.pColorBlendState == &g.blend && g.blend.attachmentCount == 1 &&
+	          g.blend.pAttachments == g.blend_attachments.data(),
+	      "blend attachments not rewired");
+	Check(g.info.pDynamicState == &g.dynamic && g.dynamic.dynamicStateCount == 2,
+	      "dynamic states not rewired");
+	Check(g.info.pNext == &g.rendering && g.rendering.colorAttachmentCount == 1 &&
+	          g.color_formats[0] == vk::Format::eR8G8B8A8Unorm &&
+	          g.rendering.depthAttachmentFormat == vk::Format::eD32Sfloat,
+	      "rendering formats not restored");
+	Check(g.layout.bindings.size() == 1 && g.layout.push.size == 16, "layout not restored");
+	Check(g.info.pTessellationState == nullptr && g.info.pViewportState == &g.viewport,
+	      "optional structs wired wrongly");
+}
+
+void TestGraphicsRecordRejections() {
+	// A stored pointer is an address in the process that recorded it.
+	const auto stale = [](auto mutate, const char* message) {
+		GraphicsFields fields;
+		mutate(fields);
+		GraphicsReplay g;
+		Check(!ParseGraphics(GraphicsRecord(fields), g), message);
+	};
+	stale([](GraphicsFields& f) { f.viewport.pViewports = reinterpret_cast<const vk::Viewport*>(0x1000); },
+	      "stale viewport pointer accepted");
+	stale([](GraphicsFields& f) { f.viewport.pScissors = reinterpret_cast<const vk::Rect2D*>(0x1000); },
+	      "stale scissor pointer accepted");
+	stale([](GraphicsFields& f) { f.multisample.pSampleMask = reinterpret_cast<const vk::SampleMask*>(0x1000); },
+	      "stale sample mask pointer accepted");
+	stale([](GraphicsFields& f) { f.raster.sType = vk::StructureType::ePipelineDepthStencilStateCreateInfo; },
+	      "struct with the wrong sType accepted");
+	stale([](GraphicsFields& f) { f.dynamic_count = 5000; }, "oversized array count accepted");
+
+	const auto valid = GraphicsRecord({});
+	for (size_t size = 0; size < valid.size(); size++) {
+		GraphicsReplay g;
+		Check(!ParseGraphics(std::span(valid).first(size), g), "truncated graphics record accepted");
+	}
+	auto trailing = valid;
+	trailing.push_back(0);
+	GraphicsReplay g;
+	Check(!ParseGraphics(trailing, g), "graphics record with trailing bytes accepted");
+}
+
+void TestComputeRecord() {
+	Writer w;
+	w.Put(uint64_t {0x3333}); // module hash
+	w.Put(uint32_t {64});     // required subgroup size
+	PutLayout(w);
+	ComputeReplay c;
+	Check(ParseCompute(w.data, c) && c.module_hash == 0x3333 && c.subgroup_size == 64 &&
+	          c.layout.bindings.size() == 1,
+	      "valid compute record rejected or not restored");
+	for (size_t size = 0; size < w.data.size(); size++) {
+		ComputeReplay truncated;
+		Check(!ParseCompute(std::span(w.data).first(size), truncated),
+		      "truncated compute record accepted");
+	}
+}
+
 } // namespace
 
 int main() {
 	TestValidRecordRoundTrips();
 	TestEveryFlippedByteIsRejected();
 	TestShapeChecks();
+	TestGraphicsRecordRoundTrips();
+	TestGraphicsRecordRejections();
+	TestComputeRecord();
 	std::printf("PipelinePrewarmFormatTests: %d checks passed\n", g_checks);
 	return 0;
 }
