@@ -1,0 +1,73 @@
+# X53-smoke-8df78aa (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s   470 frames  47.0 FPS  worst  181.8 ms
+    10s   456 frames  45.6 FPS  worst   57.9 ms
+    20s   479 frames  47.9 FPS  worst   65.2 ms
+    30s   502 frames  50.2 FPS  worst   54.0 ms
+    40s   381 frames  38.1 FPS  worst 1235.3 ms
+    50s   400 frames  40.0 FPS  worst   62.2 ms
+    60s   181 frames  18.1 FPS  worst   72.2 ms
+    80s   162 frames  16.2 FPS  worst 20000.9 ms
+## watchdog
+03:23:59 watchdog: guarding pid 2928 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\8df78aa-clangcl\kyty_emulator.exe), limit 1024 MiB
+03:23:59 watchdog: free RAM 6992 MiB, test working set 45 MiB (peak 45, private 69)
+03:24:09 watchdog: free RAM 5949 MiB, test working set 1106 MiB (peak 1691, private 2457)
+03:24:19 watchdog: free RAM 5187 MiB, test working set 1852 MiB (peak 2011, private 2996)
+03:24:29 watchdog: free RAM 4335 MiB, test working set 2826 MiB (peak 2826, private 5051)
+03:24:39 watchdog: free RAM 3742 MiB, test working set 3468 MiB (peak 3468, private 5055)
+03:24:49 watchdog: free RAM 3613 MiB, test working set 3616 MiB (peak 3616, private 5312)
+03:24:59 watchdog: free RAM 3338 MiB, test working set 3922 MiB (peak 3922, private 5314)
+03:25:09 watchdog: free RAM 1791 MiB, test working set 5643 MiB (peak 5643, private 5758)
+03:25:19 watchdog: free RAM 1732 MiB, test working set 5750 MiB (peak 5762, private 5778)
+03:25:29 watchdog: free RAM 1523 MiB, test working set 5844 MiB (peak 5965, private 6027)
+03:25:39 watchdog: free RAM 1199 MiB, test working set 6353 MiB (peak 6472, private 5958)
+03:25:48 watchdog: low: free RAM 830 MiB, commit headroom 31438 MiB, test working set 6748 MiB (peak 6748, private 6192)
+03:25:49 watchdog: free RAM 341 MiB, test working set 7179 MiB (peak 7179, private 6192)
+03:25:50 watchdog: free RAM 446 MiB, commit headroom 31402 MiB < 1024: terminated test pid 2928
+## stats lines
+GPU stats per second: draws 156 dispatches 273 | begin rendering 156 end 156 | global barriers 4907 (1536 skipped as repeats) | image barrier batches 651
+GPU stats: draws per second: indirect 8, direct by vertices x instances <=6 148 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 32/s 2432x1368 29/s 1920x1080 20/s 120x67 16/s 480x270 16/s 240x135 16/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 147] [renderDraw.cpp:1190 7] [bufferCache.cpp:148 1] [bufferCache.cpp:499 1] [context.cpp:47 0] [streamBuffer.cpp:238 0]
+hitch summary: 8 of 471 frames over 45 ms; mostly: pipeline 1 texture 2 buffer 2 guest-idle 2 other 1
+GPU stats per second: draws 873 dispatches 1559 | begin rendering 873 end 873 | global barriers 28868 (8885 skipped as repeats) | image barrier batches 3505
+GPU stats: draws per second: indirect 48, direct by vertices x instances <=6 824 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 362/s 1920x1080 97/s 120x67 97/s 480x270 97/s 240x135 97/s 960x540 48/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 819] [renderDraw.cpp:1190 43] [bufferCache.cpp:148 8] [bufferCache.cpp:499 3]
+hitch summary: 19 of 457 frames over 45 ms; mostly: guest-idle 18 other 1
+GPU stats per second: draws 826 dispatches 1480 | begin rendering 826 end 826 | global barriers 27318 (8414 skipped as repeats) | image barrier batches 3349
+GPU stats: draws per second: indirect 46, direct by vertices x instances <=6 780 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 320/s 1920x1080 92/s 120x67 92/s 480x270 92/s 240x135 92/s 3328x1872 47/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 776] [renderDraw.cpp:1190 40] [bufferCache.cpp:148 7] [bufferCache.cpp:499 3]
+SRT verify: 65536 materializations, 0 mismatches
+hitch summary: 14 of 479 frames over 45 ms; mostly: gpu-wait 1 guest-idle 13 other 0
+GPU stats per second: draws 852 dispatches 1527 | begin rendering 852 end 852 | global barriers 28164 (8677 skipped as repeats) | image barrier batches 3453
+GPU stats: draws per second: indirect 47, direct by vertices x instances <=6 805 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 330/s 1920x1080 94/s 120x67 94/s 480x270 94/s 240x135 94/s 960x540 47/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 802] [renderDraw.cpp:1190 41] [bufferCache.cpp:148 7] [bufferCache.cpp:499 3]
+hitch summary: 4 of 505 frames over 45 ms; mostly: gpu-wait 1 guest-idle 2 other 1
+GPU stats per second: draws 842 dispatches 1504 | begin rendering 842 end 842 | global barriers 27821 (8568 skipped as repeats) | image barrier batches 3392
+GPU stats: draws per second: indirect 47, direct by vertices x instances <=6 795 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 346/s 1920x1080 93/s 120x67 93/s 480x270 93/s 240x135 93/s 960x540 47/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 790] [renderDraw.cpp:1190 38] [bufferCache.cpp:148 10] [bufferCache.cpp:499 3] [context.cpp:47 0]
+hitch summary: 24 of 379 frames over 45 ms; mostly: pipeline 3 texture 1 gpu-wait 1 guest-idle 19 other 0
+GPU stats per second: draws 459 dispatches 2938 | begin rendering 459 end 459 | global barriers 28317 (9198 skipped as repeats) | image barrier batches 5868
+GPU stats: draws per second: indirect 40, direct by vertices x instances <=6 363 <=64 0 <=1024 15 <=65536 40 larger 0
+GPU stats: color targets by binds: 3840x2160 423/s 3328x1872 70/s 2432x1368 7/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 418] [renderDraw.cpp:1190 39] [bufferCache.cpp:499 1] [bufferCache.cpp:148 1]
+SRT verify: 131072 materializations, 0 mismatches
+hitch summary: 39 of 400 frames over 45 ms; mostly: texture 1 gpu-wait 6 guest-idle 23 other 9
+GPU stats per second: draws 474 dispatches 2870 | begin rendering 474 end 474 | global barriers 27935 (9175 skipped as repeats) | image barrier batches 5824
+GPU stats: draws per second: indirect 39, direct by vertices x instances <=6 357 <=64 0 <=1024 39 <=65536 39 larger 0
+GPU stats: color targets by binds: 3840x2160 430/s 3328x1872 70/s 2432x1368 13/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 434] [renderDraw.cpp:1190 36] [bufferCache.cpp:148 2] [bufferCache.cpp:499 2]
+hitch summary: 21 of 178 frames over 45 ms; mostly: pipeline 1 texture 1 gpu-wait 10 other 9
+GPU stats per second: draws 74 dispatches 282 | begin rendering 66 end 66 | global barriers 3095 (1006 skipped as repeats) | image barrier batches 595
+GPU stats: draws per second: indirect 5, direct by vertices x instances <=6 53 <=64 1 <=1024 8 <=65536 7 larger 0
+GPU stats: color targets by binds: 3840x2160 51/s 3328x1872 8/s 2432x1368 6/s 1920x1080 5/s 120x67 2/s 480x270 2/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 59] [renderDraw.cpp:1190 4] [streamBuffer.cpp:238 2] [bufferCache.cpp:148 1] [bufferCache.cpp:499 1] [tiler.cpp:348 1] [image.cpp:303 0] [context.cpp:47 0]
+SRT verify: 196608 materializations, 0 mismatches

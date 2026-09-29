@@ -1,0 +1,88 @@
+300 samples
+-- inclusive:
+ 100.0%  ucrtbase.dll
+ 100.0%  std::invoke
+ 100.0%  KERNEL32.DLL
+ 100.0%  std::thread::_Invoke<std::tuple<void (*)(void *),Libs::Graphics::GuestGpu *>,0,1>
+ 100.0%  Libs::Graphics::GuestGpu::ThreadRun
+ 100.0%  ntdll.dll
+ 100.0%  Libs::Graphics::GuestGpu::Process
+  99.0%  Libs::Graphics::CommandProcessor::ProcessPm4
+  99.0%  Libs::Graphics::CommandProcessor::Process
+  67.0%  Libs::Graphics::CpOpDrawIndexAuto
+  66.7%  Libs::Graphics::RenderExecutor::DrawAuto
+  56.3%  Libs::Graphics::RenderExecutor::PrepareDrawRenderState
+  51.7%  Libs::Graphics::PipelineCache::GetGraphicsPrograms
+  51.7%  Libs::Graphics::RefreshShaders
+  46.0%  Libs::Graphics::PipelineCache::ProgramCache::Get
+  45.7%  Libs::Graphics::PipelineCache::ProgramCache::MaterializeCached
+  45.0%  Libs::Graphics::ShaderRecompiler::IR::MaterializeResourcesImpl
+  45.0%  Libs::Graphics::ShaderRecompiler::IR::MaterializeResources
+  29.3%  Libs::Graphics::RenderExecutor::ExecutePreparedDraw
+  24.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateIndex
+  22.3%  Libs::Graphics::CommandProcessor::DrawIndexOffset
+  22.3%  Libs::Graphics::CommandProcessor::DrawIndex
+  22.3%  Libs::Graphics::RenderExecutor::DrawIndex
+  22.3%  Libs::Graphics::CpOpDrawIndexOffset
+  22.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateNode
+  16.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::FindActiveSources
+  15.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateRoot
+  11.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::RefreshFlatBuffer
+  11.3%  Libs::Graphics::RenderExecutor::PrepareGraphicsBindings
+  11.3%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::ReadRaw
+  10.7%  amdvlk64.dll
+  10.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::Evaluate
+   9.3%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateFlatRead
+   9.3%  VCRUNTIME140.dll
+   9.3%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateNode::<lambda_3>::operator()
+   9.0%  Libs::Graphics::RenderExecutor::PrepareBindings
+   7.3%  Libs::Graphics::ShaderRecompiler::IR::MaterializeResourcesImpl::<lambda_5>::operator()
+   7.0%  Libs::Graphics::BufferCache::ObtainBuffer
+   7.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateDescriptor
+   7.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::NodeArg
+   6.7%  Libs::Graphics::RenderExecutor::RebindBuffers
+   6.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::ReadAgain
+   6.3%  Libs::Graphics::NativeStorageBuffer
+   6.3%  Libs::Graphics::TextureCache::FindImage
+   6.0%  Libs::LibKernel::Memory::GuestBackingStore::TryTransferBacking<`lambda at C:\Users\himav\Desktop\kyty ps5-src\src\kernel\memoryAddressSpace.inc:186:20
+   5.7%  Libs::Graphics::RenderExecutor::ResolveTexture
+   5.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateNode::<lambda_4>::operator()
+   5.3%  Libs::LibKernel::Memory::TryReadGuestWithoutFault
+   5.3%  Libs::Graphics::PrepareProgram
+   5.0%  KERNELBASE.dll
+   5.0%  Libs::Graphics::BufferCache::SynchronizeBuffer
+   4.7%  Libs::Graphics::MemoryTracker::Iterate
+   4.0%  MSVCP140.dll
+   4.0%  Libs::Graphics::TextureCache::FindImagesInRegion
+   4.0%  Libs::LibKernel::Memory::TryReadGpuCleanBacking
+   4.0%  Libs::Graphics::RenderExecutor::ResolveRenderColorTarget
+   3.7%  Libs::Graphics::MemoryTracker::ForEachUploadRange
+   3.7%  Libs::Graphics::GetShaderParams
+   3.7%  Libs::Graphics::HashShaderCode
+   3.3%  Libs::Graphics::TextureCache::FindImagesInRegion::<lambda_13>::operator()
+-- self:
+   9.7%  ntdll.dll
+   9.3%  VCRUNTIME140.dll
+   6.3%  amdvlk64.dll
+   6.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateIndex
+   5.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateNode
+   2.3%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::ReadRaw
+   2.3%  XXH3_accumulate_512_sse2
+   2.0%  std::_Tree<std::_Tmap_traits<unsigned long long,unsigned long long,std::less<unsigned long long>,std::allocator<std::pair<const unsigned long long,uns
+   2.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::RefreshFlatBuffer
+   1.7%  win32u.dll
+   1.7%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::FindActiveSources
+   1.3%  Libs::Graphics::PageManager::IsReadProtected
+   1.3%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::EvaluateDescriptor
+   1.3%  std::equal
+   1.3%  Common::SlotVector<Libs::Graphics::Image>::is_allocated
+   1.3%  Libs::LibKernel::Memory::TryReadGuestWithoutFault
+   1.3%  std::_Tree<std::_Tmap_traits<unsigned long long,Libs::LibKernel::Memory::GuestBackingStore::MapEntry,std::less<unsigned long long>,std::allocator<std:
+   1.0%  Common::BitArray<1024>::BitArray
+   1.0%  std::_Construct_in_place
+   1.0%  std::unique_ptr<std::vector<unsigned long long,std::allocator<unsigned long long> >,std::default_delete<std::vector<unsigned long long,std::allocator<
+   1.0%  std::vector<unsigned int,std::allocator<unsigned int> >::back
+   1.0%  Libs::Graphics::ShaderRecompiler::IR::SrtWalker::NodeArg
+   1.0%  Common::SlotVector<Libs::Graphics::Buffer>::is_allocated
+   1.0%  std::vector<unsigned int,std::allocator<unsigned int> >::_Insert_counted_range<const unsigned int *>
+   1.0%  KERNEL32.DLL

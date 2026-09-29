@@ -1,0 +1,20 @@
+﻿source_commit:
+9c52585a580b42e1ce1e7e385bd1e9c76fbc7d10
+git_describe:
+KytyPS5-2026-09-29-6799ecb-132-g9c52585
+clang-cl:
+clang version 19.1.5
+Target: x86_64-pc-windows-msvc
+Thread model: posix
+InstalledDir: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin
+lld-link:
+LLD 19.1.5
+cmake:
+cmake version 3.31.6-msvc6
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+msvc_tools: 14.44.35207  windows_sdk: 10.0.26100.0\
+exe_sha256:
+SHA256 hash of C:\Users\himav\Desktop\kyty ps5-src\_Build\clangcl-release\kyty_emulator.exe:
+1aefcbab4da997fb37056a4cac11001bdb7f7afb21425e8cec0e91b3688bbe0c
+CertUtil: -hashfile command completed successfully.

@@ -1,0 +1,244 @@
+# DS-demons-souls/S19 (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s     2 frames   0.2 FPS  worst   16.5 ms
+    40s     2 frames   0.2 FPS  worst 48871.9 ms
+    50s   125 frames  12.5 FPS  worst  623.0 ms
+    60s   174 frames  17.4 FPS  worst  350.8 ms
+    70s   183 frames  18.3 FPS  worst  136.7 ms
+    80s   122 frames  12.2 FPS  worst  100.7 ms
+   110s    65 frames   6.5 FPS  worst 28866.4 ms
+   120s   173 frames  17.3 FPS  worst  267.4 ms
+   130s   158 frames  15.8 FPS  worst 1051.1 ms
+   140s   169 frames  16.9 FPS  worst  133.3 ms
+   150s   188 frames  18.8 FPS  worst 1517.5 ms
+   160s   244 frames  24.4 FPS  worst  533.9 ms
+   170s   215 frames  21.5 FPS  worst  500.9 ms
+   180s   154 frames  15.4 FPS  worst  583.6 ms
+   190s     7 frames   0.7 FPS  worst 1269.3 ms
+   240s    10 frames   1.0 FPS  worst 53339.8 ms
+   250s     9 frames   0.9 FPS  worst 2550.3 ms
+   260s     7 frames   0.7 FPS  worst 10501.4 ms
+   270s    93 frames   9.3 FPS  worst 1197.0 ms
+   280s   161 frames  16.1 FPS  worst 2433.4 ms
+   290s   113 frames  11.3 FPS  worst  716.5 ms
+   310s   113 frames  11.3 FPS  worst 15417.3 ms
+   320s   131 frames  13.1 FPS  worst  367.1 ms
+   330s    99 frames   9.9 FPS  worst  701.5 ms
+   340s    30 frames   3.0 FPS  worst  183.3 ms
+   350s     1 frames   0.1 FPS  worst 13868.0 ms
+## watchdog
+20:17:25 watchdog: free RAM 7137 MiB, test working set 4107 MiB (peak 4512, private 4082)
+20:17:36 watchdog: free RAM 7113 MiB, test working set 4115 MiB (peak 4512, private 4090)
+20:17:46 watchdog: free RAM 7280 MiB, test working set 4034 MiB (peak 4512, private 4480)
+20:17:56 watchdog: free RAM 7248 MiB, test working set 4078 MiB (peak 4512, private 4213)
+20:18:06 watchdog: free RAM 7199 MiB, test working set 4129 MiB (peak 4512, private 4487)
+20:18:16 watchdog: free RAM 7113 MiB, test working set 4188 MiB (peak 4512, private 4233)
+20:18:26 watchdog: free RAM 6888 MiB, test working set 4366 MiB (peak 4512, private 4540)
+20:18:37 watchdog: free RAM 7056 MiB, test working set 4101 MiB (peak 4735, private 4905)
+20:18:47 watchdog: free RAM 6989 MiB, test working set 4235 MiB (peak 4735, private 4635)
+20:18:57 watchdog: free RAM 6913 MiB, test working set 4344 MiB (peak 4735, private 4704)
+20:19:07 watchdog: free RAM 6417 MiB, test working set 4828 MiB (peak 5141, private 6449)
+20:19:17 watchdog: free RAM 6375 MiB, test working set 4878 MiB (peak 5141, private 6455)
+20:19:27 watchdog: free RAM 6334 MiB, test working set 4905 MiB (peak 5141, private 6464)
+20:19:37 watchdog: free RAM 6290 MiB, test working set 4954 MiB (peak 5141, private 6472)
+20:19:47 watchdog: free RAM 6264 MiB, test working set 4969 MiB (peak 5141, private 6476)
+20:19:57 watchdog: free RAM 6018 MiB, test working set 5199 MiB (peak 5228, private 7152)
+20:20:07 watchdog: free RAM 5964 MiB, test working set 5258 MiB (peak 5295, private 6923)
+20:20:17 watchdog: free RAM 5678 MiB, test working set 5566 MiB (peak 5582, private 7612)
+20:20:27 watchdog: free RAM 5464 MiB, test working set 5816 MiB (peak 5872, private 6741)
+20:20:37 watchdog: free RAM 5442 MiB, test working set 5888 MiB (peak 6136, private 7050)
+20:20:47 watchdog: free RAM 5244 MiB, test working set 6055 MiB (peak 6136, private 7591)
+20:20:57 watchdog: free RAM 4836 MiB, test working set 6468 MiB (peak 6644, private 8125)
+20:21:07 watchdog: free RAM 4738 MiB, test working set 6590 MiB (peak 6644, private 8239)
+20:21:17 watchdog: free RAM 4657 MiB, test working set 6672 MiB (peak 6697, private 8255)
+20:21:27 watchdog: free RAM 4692 MiB, test working set 6706 MiB (peak 6998, private 8513)
+20:21:37 watchdog: free RAM 4641 MiB, test working set 6782 MiB (peak 6998, private 8498)
+20:21:47 watchdog: free RAM 4594 MiB, test working set 6823 MiB (peak 6998, private 8589)
+20:21:57 watchdog: free RAM 1238 MiB, test working set 10127 MiB (peak 10127, private 8866)
+20:21:58 watchdog: low: free RAM 880 MiB, commit headroom 33299 MiB, test working set 10596 MiB (peak 10596, private 8866)
+20:22:00 watchdog: free RAM 57 MiB, commit headroom 33337 MiB < 1024: terminated test pid 6360
+## stats lines
+GPU stats per second: draws 0 dispatches 5 | begin rendering 0 end 0 | global barriers 10 (5 skipped as repeats) | image barrier batches 8
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 0 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 0/s 2560x1440 0/s
+GPU stats: rendering ended by (per second): [context.cpp:47 0] [graphicsRun.cpp:1460 0]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2309 MiB budget=7378 MiB (VMA blocks 2219 MiB)
+TextureCache: 64 images 819 MiB (GPU-written tiled 51 355 MiB); device usage 2309 MiB, critical 5165 MiB; freed 0, kept 0, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 564 MiB (total)
+TextureCache host memory: registered 807 MiB for 819 MiB of guest data; 0 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 126:2 324->329 130:1 15->19 98:4 60->63 101:3 22->23 103:1 10->10 124:1 0->0; PRT-tiled 0 images 0 MiB host; mipped 9 images 83 MiB host, largest level 71 of 93 MiB guest
+GPU stats per second: draws 101 dispatches 2151 | begin rendering 101 end 101 | global barriers 4180 (2156 skipped as repeats) | image barrier batches 3486
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 101 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 60/s 2560x1440 20/s 3840x2160 10/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 90] [tiler.cpp:348 10] [bufferCache.cpp:148 1] [context.cpp:47 0] [renderCompute.cpp:368 0]
+hitch summary: 106 of 107 frames over 45 ms; mostly: pipeline 7 texture 46 gpu-wait 2 guest-idle 9 other 42
+GPU stats per second: draws 173 dispatches 3691 | begin rendering 173 end 173 | global barriers 7179 (3705 skipped as repeats) | image barrier batches 5979
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 173 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 104/s 2560x1440 35/s 3840x2160 17/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 155] [tiler.cpp:348 17] [context.cpp:47 0] [bufferCache.cpp:148 0]
+hitch summary: 170 of 174 frames over 45 ms; mostly: pipeline 1 texture 124 gpu-wait 11 guest-idle 2 other 32
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2724 MiB budget=7378 MiB (VMA blocks 2597 MiB)
+TextureCache: 87 images 1083 MiB (GPU-written tiled 52 478 MiB); device usage 2724 MiB, critical 5165 MiB; freed 14, kept 538, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 28239 MiB (total)
+TextureCache host memory: registered 1071 MiB for 1083 MiB of guest data; 3 unregistered slots 8 MiB; largest overheads (format:count guest->host MiB): 126:3 340->345 130:1 15->19 98:9 69->71 64:2 64->64 37:8 71->71 101:3 22->23; PRT-tiled 0 images 0 MiB host; mipped 12 images 132 MiB host, largest level 107 of 141 MiB guest
+GPU stats per second: draws 185 dispatches 3939 | begin rendering 185 end 185 | global barriers 7656 (3950 skipped as repeats) | image barrier batches 6380
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 185 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 111/s 2560x1440 37/s 3840x2160 18/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 166] [tiler.cpp:348 18] [context.cpp:47 0]
+hitch summary: 178 of 185 frames over 45 ms; mostly: texture 138 gpu-wait 6 guest-idle 6 other 28
+GPU stats per second: draws 40 dispatches 841 | begin rendering 40 end 40 | global barriers 1632 (842 skipped as repeats) | image barrier batches 1363
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 40 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 24/s 2560x1440 8/s 3840x2160 4/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 35] [tiler.cpp:348 4] [context.cpp:47 0] [bufferCache.cpp:499 0] [bufferCache.cpp:148 0]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2729 MiB budget=7378 MiB (VMA blocks 2600 MiB)
+TextureCache: 99 images 1109 MiB (GPU-written tiled 77 615 MiB); device usage 2729 MiB, critical 5165 MiB; freed 0, kept 174, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 37013 MiB (total)
+TextureCache host memory: registered 1097 MiB for 1109 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 126:3 340->345 130:1 15->19 98:9 69->71 64:2 64->64 101:3 22->23 37:10 71->71; PRT-tiled 0 images 0 MiB host; mipped 18 images 157 MiB host, largest level 125 of 166 MiB guest
+hitch summary: 133 of 140 frames over 45 ms; mostly: pipeline 1 texture 100 gpu-wait 9 guest-idle 5 other 18
+GPU stats per second: draws 161 dispatches 3435 | begin rendering 161 end 161 | global barriers 6680 (3448 skipped as repeats) | image barrier batches 5561
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 161 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 97/s 2560x1440 32/s 3840x2160 16/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 145] [tiler.cpp:348 16] [bufferCache.cpp:148 0] [context.cpp:47 0]
+hitch summary: 157 of 163 frames over 45 ms; mostly: texture 128 gpu-wait 4 guest-idle 6 other 19
+GPU stats per second: draws 157 dispatches 3336 | begin rendering 157 end 157 | global barriers 6482 (3343 skipped as repeats) | image barrier batches 5408
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 157 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 94/s 2560x1440 32/s 3840x2160 16/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 140] [tiler.cpp:348 16] [context.cpp:47 1]
+hitch summary: 145 of 157 frames over 45 ms; mostly: texture 111 gpu-wait 6 guest-idle 14 other 14
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2806 MiB budget=7378 MiB (VMA blocks 2600 MiB)
+TextureCache: 91 images 1062 MiB (GPU-written tiled 57 476 MiB); device usage 2806 MiB, critical 5165 MiB; freed 10, kept 1030, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 66784 MiB (total)
+TextureCache host memory: registered 1050 MiB for 1062 MiB of guest data; 3 unregistered slots 8 MiB; largest overheads (format:count guest->host MiB): 126:3 340->345 130:1 15->19 98:9 69->71 64:2 64->64 101:3 22->23 103:1 10->10; PRT-tiled 0 images 0 MiB host; mipped 12 images 100 MiB host, largest level 83 of 109 MiB guest
+GPU stats per second: draws 210 dispatches 3792 | begin rendering 180 end 180 | global barriers 7376 (3807 skipped as repeats) | image barrier batches 6141
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 210 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 107/s 3840x2160 50/s 2560x1440 36/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 160] [tiler.cpp:348 18] [renderCompute.cpp:368 2] [bufferCache.cpp:499 0] [context.cpp:47 0]
+hitch summary: 171 of 178 frames over 45 ms; mostly: pipeline 1 texture 150 gpu-wait 3 guest-idle 4 other 13
+TextureCache: recreating a format 13 image at 0x000000036360a000 for other view formats (#1)
+TextureCache: recreating a format 20 image at 0x0000000363e02000 for other view formats (#2)
+TextureCache: recreating a format 13 image at 0x0000000361000000 for other view formats (#3)
+TextureCache: recreating a format 20 image at 0x00000003617f8000 for other view formats (#4)
+GPU stats per second: draws 488 dispatches 3390 | begin rendering 189 end 189 | global barriers 6534 (3342 skipped as repeats) | image barrier batches 5476
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 488 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 347/s 1280x720 94/s 2560x1440 31/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 145] [renderCompute.cpp:368 16] [tiler.cpp:348 16] [streamBuffer.cpp:238 8] [bufferCache.cpp:499 4] [image.cpp:330 1] [transit ShaderReadOnlyOptimal->ShaderReadOnlyOptimal 3840x2160 R16G16B16A16Sfloat 1] [context.cpp:47 0]
+hitch summary: 104 of 157 frames over 45 ms; mostly: pipeline 2 texture 63 buffer 2 gpu-wait 20 guest-idle 5 other 12
+GPU stats per second: draws 739 dispatches 5135 | begin rendering 316 end 316 | global barriers 9926 (5082 skipped as repeats) | image barrier batches 8326
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 726 <=64 5 <=1024 7 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 503/s 1280x720 143/s 2560x1440 48/s 1920x540 22/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 230] [tiler.cpp:348 24] [renderCompute.cpp:368 24] [streamBuffer.cpp:238 21] [bufferCache.cpp:499 10] [image.cpp:330 8] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 6] [transit ShaderReadOnlyOptimal->ShaderReadOnlyOptimal 3840x2160 R16G16B16A16Sfloat 1] [bufferCache.cpp:148 0]
+hitch summary: 44 of 239 frames over 45 ms; mostly: texture 2 buffer 1 gpu-wait 23 guest-idle 10 other 8
+TextureCache: recreating a format 13 image at 0x000000036360a000 for other view formats (#5)
+TextureCache: recreating a format 20 image at 0x0000000363e02000 for other view formats (#6)
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=3506 MiB budget=7378 MiB (VMA blocks 3292 MiB)
+TextureCache: 102 images 1508 MiB (GPU-written tiled 79 595 MiB); device usage 3506 MiB, critical 5165 MiB; freed 14, kept 1749, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 103764 MiB (total)
+TextureCache host memory: registered 1500 MiB for 1508 MiB of guest data; 3 unregistered slots 8 MiB; largest overheads (format:count guest->host MiB): 126:3 340->345 130:1 15->19 98:9 69->71 43:5 342->343 20:2 8->9 13:4 20->21; PRT-tiled 0 images 0 MiB host; mipped 15 images 121 MiB host, largest level 99 of 131 MiB guest
+TextureCache: recreating a format 13 image at 0x0000000361000000 for other view formats (#7)
+TextureCache: recreating a format 20 image at 0x00000003617f8000 for other view formats (#8)
+GPU stats per second: draws 819 dispatches 4434 | begin rendering 612 end 612 | global barriers 8787 (4465 skipped as repeats) | image barrier batches 7497
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 622 <=64 119 <=1024 71 <=65536 8 larger 0
+GPU stats: color targets by binds: 3840x2160 328/s 1920x540 303/s 1280x720 125/s 2560x1440 42/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 340] [image.cpp:330 104] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 104] [streamBuffer.cpp:238 100] [bufferCache.cpp:499 26] [tiler.cpp:348 21] [renderCompute.cpp:368 21] [context.cpp:47 0] [bufferCache.cpp:148 0] [transit ShaderReadOnlyOptimal->ShaderReadOnlyOptimal 3840x2160 R16G16B16A16Sfloat 0]
+hitch summary: 79 of 210 frames over 45 ms; mostly: pipeline 1 texture 10 gpu-wait 19 guest-idle 2 other 47
+GPU stats per second: draws 275 dispatches 3675 | begin rendering 258 end 258 | global barriers 7629 (4144 skipped as repeats) | image barrier batches 6111
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 266 <=64 1 <=1024 7 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 111/s 3840x2160 89/s 2560x1440 42/s 1920x540 13/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 189] [tiler.cpp:348 21] [renderCompute.cpp:368 20] [streamBuffer.cpp:238 17] [image.cpp:330 7] [transit ShaderReadOnlyOptimal->ShaderReadOnlyOptimal 3840x2160 R16G16B16A16Sfloat 4] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 3] [bufferCache.cpp:499 2] [context.cpp:47 1] [bufferCache.cpp:148 0]
+hitch summary: 36 of 206 frames over 45 ms; mostly: texture 1 gpu-wait 11 guest-idle 17 other 7
+TextureCache: recreating a format 13 image at 0x0000000377b0a000 for other view formats (#9)
+TextureCache: recreating a format 20 image at 0x0000000378302000 for other view formats (#10)
+TextureCache: recreating a format 13 image at 0x0000000375500000 for other view formats (#11)
+TextureCache: recreating a format 20 image at 0x0000000375cf8000 for other view formats (#12)
+GPU stats per second: draws 22 dispatches 232 | begin rendering 19 end 19 | global barriers 453 (231 skipped as repeats) | image barrier batches 382
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 20 <=64 1 <=1024 2 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 8/s 1280x720 6/s 1920x540 5/s 2560x1440 2/s 1920x1080 0/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 13] [image.cpp:330 2] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 2] [streamBuffer.cpp:238 2] [tiler.cpp:348 1] [renderCompute.cpp:368 1] [bufferCache.cpp:499 1] [transit ShaderReadOnlyOptimal->ShaderReadOnlyOptimal 3840x2160 R16G16B16A16Sfloat 0] [context.cpp:47 0]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=5101 MiB budget=7378 MiB (VMA blocks 4890 MiB)
+TextureCache: 162 images 2698 MiB (GPU-written tiled 134 1624 MiB); device usage 5085 MiB, critical 5165 MiB; freed 21, kept 1726, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 121741 MiB (total)
+TextureCache host memory: registered 2713 MiB for 2698 MiB of guest data; 2 unregistered slots 16 MiB; largest overheads (format:count guest->host MiB): 130:2 47->60 126:4 348->354 97:49 1156->1161 98:16 215->219 43:8 406->408 20:2 8->9; PRT-tiled 0 images 0 MiB host; mipped 23 images 202 MiB host, largest level 156 of 211 MiB guest
+hitch summary: 35 of 61 frames over 45 ms; mostly: pipeline 1 texture 10 gpu-wait 4 guest-idle 9 other 11
+GPU stats per second: draws 267 dispatches 626 | begin rendering 90 end 90 | global barriers 1178 (629 skipped as repeats) | image barrier batches 883
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 56 <=64 8 <=1024 45 <=65536 157 larger 0
+GPU stats: color targets by binds: 3840x2160 42/s 1920x540 14/s 480x270 8/s 1920x1080 8/s 960x540 3/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 45] [streamBuffer.cpp:238 17] [new: same attachments, clear 13] [context.cpp:47 4] [image.cpp:330 4] [bufferCache.cpp:499 2] [renderCompute.cpp:368 2] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 2] [tiler.cpp:348 2] [bufferCache.cpp:148 1]
+GPU stats per second: draws 129 dispatches 265 | begin rendering 36 end 36 | global barriers 504 (269 skipped as repeats) | image barrier batches 376
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 19 <=64 1 <=1024 22 <=65536 86 larger 0
+GPU stats: color targets by binds: 3840x2160 66/s 480x270 4/s 1920x1080 3/s 1920x540 2/s 960x540 1/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 18] [new: same attachments, clear 6] [streamBuffer.cpp:238 5] [context.cpp:47 2] [image.cpp:330 1] [tiler.cpp:348 1] [renderCompute.cpp:368 1] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 480x270 R16G16B16A16Sfloat 1] [bufferCache.cpp:148 1] [bufferCache.cpp:499 1]
+hitch summary: 19 of 19 frames over 45 ms; mostly: pipeline 6 guest-idle 3 other 10
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=6082 MiB budget=7199 MiB (VMA blocks 5786 MiB)
+TextureCache: 237 images 3284 MiB (GPU-written tiled 132 1900 MiB); device usage 6082 MiB, critical 5165 MiB; freed 50, kept 1174, emergency-freed 74 (465 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 125409 MiB (total)
+TextureCache host memory: registered 3288 MiB for 3284 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 130:2 34->44 97:55 1074->1082 126:5 361->367 98:17 158->164 43:7 406->407 37:12 76->76; PRT-tiled 0 images 0 MiB host; mipped 98 images 998 MiB host, largest level 734 of 1020 MiB guest
+GPU stats per second: draws 559 dispatches 1070 | begin rendering 227 end 227 | global barriers 1957 (997 skipped as repeats) | image barrier batches 1483
+GPU stats: draws per second: indirect 6, direct by vertices x instances <=6 146 <=64 35 <=1024 88 <=65536 284 larger 0
+GPU stats: color targets by binds: 3840x2160 305/s 1920x540 59/s 1920x1080 16/s 480x270 11/s 2560x1440 11/s 960x540 4/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 93] [streamBuffer.cpp:238 72] [new: same attachments, clear 19] [context.cpp:47 10] [bufferCache.cpp:499 10] [image.cpp:330 9] [renderCompute.cpp:368 6] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 5] [bufferCache.cpp:148 4] [tiler.cpp:348 2]
+hitch summary: 28 of 31 frames over 45 ms; mostly: pipeline 3 texture 1 gpu-wait 5 guest-idle 4 other 15
+TextureCache: recreating a format 13 image at 0x000000036c30a000 for other view formats (#13)
+TextureCache: recreating a format 20 image at 0x000000036cb02000 for other view formats (#14)
+TextureCache: recreating a format 13 image at 0x0000000369d00000 for other view formats (#15)
+TextureCache: recreating a format 20 image at 0x000000036a4f8000 for other view formats (#16)
+GPU stats per second: draws 623 dispatches 2321 | begin rendering 190 end 190 | global barriers 4545 (2380 skipped as repeats) | image barrier batches 3883
+GPU stats: draws per second: indirect 50, direct by vertices x instances <=6 572 <=64 1 <=1024 1 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 468/s 214x120 269/s 1280x720 64/s 2560x1440 40/s 1920x540 8/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 108] [image.cpp:330 32] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 29] [renderCompute.cpp:368 19] [tiler.cpp:348 12] [streamBuffer.cpp:238 8] [bufferCache.cpp:499 5] [textureCache.cpp:1815 4] [context.cpp:47 2] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 2]
+hitch summary: 34 of 129 frames over 45 ms; mostly: pipeline 2 texture 1 gpu-wait 7 guest-idle 10 other 14
+GPU stats per second: draws 2879 dispatches 5617 | begin rendering 560 end 560 | global barriers 9770 (4605 skipped as repeats) | image barrier batches 9277
+GPU stats: draws per second: indirect 265, direct by vertices x instances <=6 2614 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 3840x2160 2393/s 214x120 1412/s 1280x720 133/s 2560x1440 133/s 1920x540 44/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 242] [image.cpp:330 170] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 154] [renderCompute.cpp:368 66] [tiler.cpp:348 22] [textureCache.cpp:1815 22] [bufferCache.cpp:499 21] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 16] [streamBuffer.cpp:238 14] [context.cpp:47 1]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=6770 MiB budget=7199 MiB (VMA blocks 6460 MiB)
+TextureCache: 123 images 2626 MiB (GPU-written tiled 88 1332 MiB); device usage 6770 MiB, critical 5165 MiB; freed 167, kept 16839, emergency-freed 142 (680 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 128359 MiB (total)
+TextureCache host memory: registered 2628 MiB for 2626 MiB of guest data; 3 unregistered slots 136 MiB; largest overheads (format:count guest->host MiB): 124:2 135->146 126:3 340->345 130:3 16->21 98:12 204->208 97:39 929->933 20:1 4->4; PRT-tiled 0 images 0 MiB host; mipped 26 images 826 MiB host, largest level 608 of 848 MiB guest
+GPU stats per second: draws 18 dispatches 38 | begin rendering 6 end 6 | global barriers 66 (34 skipped as repeats) | image barrier batches 57
+GPU stats: draws per second: indirect 2, direct by vertices x instances <=6 10 <=64 0 <=1024 1 <=65536 5 larger 0
+GPU stats: color targets by binds: 214x120 11/s 3840x2160 9/s 64x64 3/s 2560x1440 1/s 1280x720 1/s 1920x540 0/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 2] [image.cpp:330 2] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 1] [streamBuffer.cpp:238 1] [textureCache.cpp:1815 1] [new: same attachments, clear 1] [transit DepthStencilReadOnlyOptimal->DepthStencilReadOnlyOptimal 64x64 D32SfloatS8Uint 0] [bufferCache.cpp:499 0] [tiler.cpp:348 0] [renderCompute.cpp:368 0]
+hitch summary: 22 of 212 frames over 45 ms; mostly: pipeline 3 texture 1 gpu-wait 8 guest-idle 7 other 3
+GPU stats per second: draws 1152 dispatches 2250 | begin rendering 308 end 308 | global barriers 3869 (1912 skipped as repeats) | image barrier batches 3426
+GPU stats: draws per second: indirect 110, direct by vertices x instances <=6 865 <=64 59 <=1024 16 <=65536 79 larger 22
+GPU stats: color targets by binds: 3840x2160 791/s 214x120 469/s 2560x1440 274/s 1280x720 59/s 1920x540 15/s 64x64 4/s
+GPU stats: rendering ended by (per second): [image.cpp:330 130] [graphicsRun.cpp:1460 111] [transit DepthReadOnlyStencilAttachmentOptimal->DepthReadOnlyStencilAttachmentOptimal 2560x1440 D32SfloatS8Uint 52] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 50] [renderCompute.cpp:368 22] [context.cpp:47 8] [textureCache.cpp:1815 8] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 2560x1440 R16G16B16A16Sfloat 7] [transit DepthStencilReadOnlyOptimal->DepthStencilReadOnlyOptimal 2560x1440 D32SfloatS8Uint 7] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1280x720 R16G16B16A16Sfloat 7]
+hitch summary: 124 of 126 frames over 45 ms; mostly: pipeline 5 texture 1 gpu-wait 45 guest-idle 4 other 69
+GPU stats per second: draws 2060 dispatches 4117 | begin rendering 512 end 512 | global barriers 7077 (3494 skipped as repeats) | image barrier batches 6164
+GPU stats: draws per second: indirect 203, direct by vertices x instances <=6 1594 <=64 61 <=1024 27 <=65536 135 larger 40
+GPU stats: color targets by binds: 3840x2160 1458/s 214x120 863/s 2560x1440 499/s 1280x720 108/s 1920x540 27/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 201] [image.cpp:330 190] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 92] [transit DepthReadOnlyStencilAttachmentOptimal->DepthReadOnlyStencilAttachmentOptimal 2560x1440 D32SfloatS8Uint 48] [renderCompute.cpp:368 40] [context.cpp:47 16] [textureCache.cpp:1815 13] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 2560x1440 R16G16B16A16Sfloat 13] [transit DepthStencilReadOnlyOptimal->DepthStencilReadOnlyOptimal 2560x1440 D32SfloatS8Uint 13] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1280x720 R16G16B16A16Sfloat 13]
+hitch summary: 118 of 120 frames over 45 ms; mostly: pipeline 3 texture 1 gpu-wait 55 guest-idle 19 other 40
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=6972 MiB budget=7208 MiB (VMA blocks 6654 MiB)
+TextureCache: 136 images 3011 MiB (GPU-written tiled 92 1496 MiB); device usage 6972 MiB, critical 5165 MiB; freed 23, kept 1455, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 131538 MiB (total)
+TextureCache host memory: registered 3011 MiB for 3011 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 124:1 135->146 126:3 340->345 130:3 16->21 97:40 945->949 98:10 204->206 43:2 341->343; PRT-tiled 0 images 0 MiB host; mipped 40 images 883 MiB host, largest level 650 of 905 MiB guest
+GPU stats per second: draws 1680 dispatches 3020 | begin rendering 461 end 461 | global barriers 5202 (2564 skipped as repeats) | image barrier batches 4539
+GPU stats: draws per second: indirect 154, direct by vertices x instances <=6 1301 <=64 60 <=1024 31 <=65536 105 larger 29
+GPU stats: color targets by binds: 3840x2160 1199/s 214x120 627/s 2560x1440 369/s 1280x720 78/s 1920x540 55/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 170] [image.cpp:330 153] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 66] [streamBuffer.cpp:238 45] [transit DepthReadOnlyStencilAttachmentOptimal->DepthReadOnlyStencilAttachmentOptimal 2560x1440 D32SfloatS8Uint 37] [renderCompute.cpp:368 29] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 21] [bufferCache.cpp:499 14] [context.cpp:47 13] [bufferCache.cpp:148 11]
+hitch summary: 110 of 110 frames over 45 ms; mostly: pipeline 1 gpu-wait 20 guest-idle 27 other 62
+GPU stats per second: draws 651 dispatches 1143 | begin rendering 179 end 179 | global barriers 1942 (956 skipped as repeats) | image barrier batches 1695
+GPU stats: draws per second: indirect 59, direct by vertices x instances <=6 509 <=64 22 <=1024 11 <=65536 40 larger 11
+GPU stats: color targets by binds: 3840x2160 472/s 214x120 234/s 2560x1440 139/s 1280x720 29/s 1920x540 22/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 66] [image.cpp:330 54] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 24] [streamBuffer.cpp:238 23] [transit DepthReadOnlyStencilAttachmentOptimal->DepthReadOnlyStencilAttachmentOptimal 2560x1440 D32SfloatS8Uint 11] [renderCompute.cpp:368 11] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 1920x540 R16G16B16A16Sfloat 8] [bufferCache.cpp:499 6] [context.cpp:47 6] [textureCache.cpp:1815 4]
+hitch summary: 17 of 17 frames over 45 ms; mostly: pipeline 1 gpu-wait 5 guest-idle 6 other 5
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=6621 MiB budget=7224 MiB (VMA blocks 6292 MiB)
+TextureCache: 207 images 2828 MiB (GPU-written tiled 93 1768 MiB); device usage 6621 MiB, critical 5165 MiB; freed 5, kept 539, emergency-freed 1 (0 MiB written back), replaced 0 in 30 s; reduced quality: 0 created, 0 promoted to full (total); texture RAM trimmed 131779 MiB (total)
+TextureCache host memory: registered 2827 MiB for 2828 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 124:1 135->146 126:3 340->345 130:3 16->21 97:38 881->885 98:10 204->206 43:2 341->343; PRT-tiled 0 images 0 MiB host; mipped 112 images 763 MiB host, largest level 566 of 785 MiB guest
+GPU stats per second: draws 595 dispatches 1284 | begin rendering 165 end 165 | global barriers 1317 (623 skipped as repeats) | image barrier batches 1152
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 336 <=64 18 <=1024 36 <=65536 154 larger 7
+GPU stats: color targets by binds: 2560x1440 365/s 3840x2160 310/s 214x120 154/s 1280x720 19/s 1920x540 14/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 45] [image.cpp:330 41] [streamBuffer.cpp:238 26] [transit ColorAttachmentOptimal->ColorAttachmentOptimal 214x120 R16G16B16A16Sfloat 17] [context.cpp:47 13] [transit DepthReadOnlyStencilAttachmentOptimal->DepthReadOnlyStencilAttachmentOptimal 2560x1440 D32SfloatS8Uint 11] [bufferCache.cpp:148 8] [renderCompute.cpp:368 7] [new: other attachments 7] [new: same attachments, clear 6]
+## resident-370s.txt
+working set 4363 MiB (1117049 pages)
+  guest-mapped         3128 MiB   shared     3128 MiB
+  host-private         1082 MiB   shared        0 MiB
+  guest-private          97 MiB   shared        0 MiB
+  host-image             48 MiB   shared       45 MiB
+  guest-image             7 MiB   shared        7 MiB
+  host-mapped             1 MiB   shared        1 MiB

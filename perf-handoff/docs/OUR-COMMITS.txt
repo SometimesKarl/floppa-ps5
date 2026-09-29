@@ -1,0 +1,127 @@
+9c52585 Depth target sampled read-only: one access for target and texture transitions
+df00497 texture_ram=trim only for CPU-written textures; buffer upload volume in KYTY_UPLOAD_LOG
+f701283 Opt-in texture_ram=trim: uploaded read-only textures leave the working set
+fc8a947 GPU stats: attribute render-pass breaks caused by image layout transitions
+46e2a7d Opt-in reduced texture quality: large sampled textures without their top mip
+25aaf07 Low-memory guard: stop the emulator before Windows runs out of RAM
+8560b11 pipelineCache.h: restore common/threads.h for the kept mutexes (merge fix)
+6bf26df Flexible memory: zero only backing that was mapped before
+df9fec0 Safety after a machine freeze: bounds-check image copies; extended band uploads opt-in
+0521196 Texture cache: emergency collection keeps images used in the last 8 guest frames
+a424fbb SRT walker: the observed walker reuses values its clean walker produced
+8df78aa SRT strict reads: per-walk cache of GPU-clean guest pages
+d3ce7f8 SRT walker: FindActiveSources derives its starting activity once per plan
+5fd3a15 Texture cache: overlap resolution keeps images used in the last two guest frames
+ef996b5 Texture cache: KYTY_IMAGE_CHURN_LOG; shader images record exact-texel use
+d54c0f9 Guest backing transfers: one mapping lookup when a mapping holds the range; upload log per-image reasons
+3e6ecc8 Texture cache: buffer-written image bytes tracked per 64th of the image
+0629bef APR path resolution: one file-system query per new path
+c837382 Texture cache: band uploads for standard 64 KiB tiling; why whole uploads happen
+a4d09c0 Revert "SRT walker: incremental walks keep the values whose inputs did not change"
+adb9a0c SRT walker: incremental walks keep the values whose inputs did not change
+b1fdf8a SRT memo stats: how much a walk without memo differs from the shader's previous walk
+0a820d3 GPU stats: draws per second by kind and size (indirect; direct by vertices x instances)
+6148de9 Revert "SRT walker: evaluate nodes by reference instead of copying each one"
+7fd5120 SRT walker: evaluate nodes by reference instead of copying each one
+d6ca050 SRT memo: shaders whose memo keeps missing walk without it for a while
+360189d SRT memo: compare user data before re-reading guest memory; report why walks are not reused
+78256f4 Never spill GPU memory into nearly full system RAM: free, then stop with a message
+6ea9551 Window title says when a new area's shaders are compiling
+ce95f9f Upload only the rows GPU buffer writes changed in a render-target-tiled image
+eed41af Memory stats: PRT-tiled texture bytes and the largest-mip share of mipped textures
+6c969f7 emulator-settings.ini frame_cap = off | 30 | 20: steady frame pacing
+af83bbf Keep rendering going across draws that only read an image they also target
+35eda2e GPU stats: where recorded rendering is ended, and why the next draw could not continue it
+a8959d3 Upload log: what each re-upload was for, and how much of the image GPU writes covered
+c04d087 Memory stats: host memory of cached images next to their guest size, per format
+751bd7c Correctness first: keep GPU-written images, compile pipelines in place, gate clock steering
+4463b70 Texture collector ignores system RAM; hitch log charges each scope its own time
+55ebe6d Upload log: tally which GPU writes mark images for re-upload
+bb20c15 Upload log: which images are uploaded again and again, and why
+d102134 Hitch log: where the GPU command thread spent each long frame
+f064be6 Resolution control: hold a step near the target instead of chasing it
+9b366c4 Render resolution setting: steer the title's dynamic resolution
+fce40f0 Pipeline prewarm at boot, VRAM headroom policy, texture age stats
+e9856e3 Recover from full video memory, defer pipeline compiles for redrawn targets
+0f58928 texture_cache: skip the color metadata readback when no code can decode
+fb12064 Revert "texture_cache: remember non-uniform color metadata slices between binds"
+d6511aa Revert "srt_walker: decode control-flow conditions once per plan"
+e02f016 srt_walker: decode control-flow conditions once per plan
+5e428ba texture_cache: remember non-uniform color metadata slices between binds
+cad952f shader_precompile: carry every field the program cache key reads
+c206c31 pipeline_cache: record shader permutations and translate them again at boot
+22b69bc command_processor: skip a global barrier when nothing was recorded since the last one
+61b992c srt_walker: decode LoadAddressU32 reads and plan roots once
+b29704a renderer: KYTY_GPU_STATS prints how host GPU work is broken up
+7911e1a descriptors: cache each texture descriptor's image description
+f7bbfcc srt_walker: evaluate extracted resource plans from decoded nodes
+9bcf587 gpu thread: remove the heaviest per-draw heap allocations
+a22d546 common: KYTY_ALLOC_SAMPLER counts and samples heap allocations of opted-in threads
+93c4666 gpu caches: more headroom in emergencies; sub-allocate a buffer the driver will not dedicate
+ec00b61 texture_cache: keep images the current draw looked up out of the overlap eviction
+19ac6c6 texture_cache: free stale images that a new texture replaces
+23c6adc pipeline_cache: make skipped-draw async pipeline compiles opt-in
+f63ad5d gpu caches: emergency collection when a level load outruns the regular passes
+a531315 texture_cache: keep unfreeable images from starving the collector
+5518da9 audio: follow the measured presentation latency so sound no longer leads the picture
+2d28c70 audio: KYTY_AUDIO_LATENCY_MS sets the host queue target; KYTY_AV_LOG prints queued audio
+8b4bd35 video_out: log the guest submit time of each GPU flip in the frame log
+2801bc4 pipeline_cache: compile new graphics pipelines on background workers
+26c6f72 gpu: allocate past the memory budget instead of aborting when a level load outruns the collectors
+0f1626c pipeline_cache: KYTY_COMPILE_LOG times each shader compile step and pipeline creation
+7f9ac7c video_out: complete the flip at the vblank before the host present
+a190922 resource_materialization: profile the active-source, flat-buffer and descriptor phases
+2dca540 render_context: reuse the registration list of each EOP interrupt
+90523c1 shader_recompiler: inline the IR value accessors the SRT walker calls per node
+424918b pipeline_cache: key materialization reuse on the user-data registers the walk reads
+65cb0fd pipeline_cache: reuse resource materializations whose inputs still hold
+de78685 memory: lock-free fast path for reads that only need to avoid the draining fault
+d1b9d87 threads: run the GPU command, interrupt and present threads above normal priority
+bb021fa gpu: stage buffer downloads in batches instead of aborting on a large one
+e897b4f texture_cache: log the address and a running count of view-format recreations
+2d0ffce buffer_cache: skip GC of a dirty buffer whose bytes an in-flight read-back already owns
+23a0a3e renderer: continue depth feedback loops in GENERAL layout when the host lacks the extensions
+51c13d5 tiler: build the 3D tiler families with a compile-time element size
+d19d8af tiler: log each lazily created tiler pipeline (family, element size, direction)
+abc2850 shader_recompiler: read resource-table words through clean backing; zone the program lookup
+9e1bde3 loader: print a host backtrace (module+offset per frame) for unhandled host faults
+6f0d3f8 shader: read vertex attribute and buffer tables through clean backing; zone the draw path
+a4a892e pipeline_cache: keep the driver pipeline cache across emulator builds
+12a1607 command_processor: KYTY_SYNC_INVENTORY counts synchronization packets by their fields
+4437535 renderer: read GPU-written DRAW_INDEX_INDIRECT arguments on the GPU for mesh draws
+03234d7 kernel: bound the undelivered-trigger queue of graphics and video-out events
+af9bfa7 mesh: advance slice counters by consumed counts; extend mesh draw fixture
+7fafe15 mesh dispatch: clamp group stride to the total workgroup limit
+2a6e5f4 tests: build mesh_dispatch_tests as part of the kyty_tests target
+a1ebcdb renderer: split oversized mesh draws into host-limit slices
+8c0a6aa vma: account images and buffers per memory type; print heap budgets with KYTY_MEMORY_STATS
+63f6877 video_out: optional per-presentation frame log (KYTY_FRAME_LOG)
+d90817e common: retry protected-source file writes through a host buffer; log both
+c0485c2 common: retry Windows file reads through a bounce buffer when the guest buffer is protected
+0957ee8 renderer: poll GPU markers with timer sleeps instead of driver waits
+4ed523b buffer_cache: rescan for BDA uploads after a buffer is registered
+3f5c7ec vma: print per-memory-type totals with KYTY_MEMORY_STATS
+f149b3d renderer: skip the PrepareBda upload scan when nothing became CPU-dirty
+e464a1a renderer: give render targets a view-format list so AMD keeps DCC
+20c81f6 window: keep running when a connected controller cannot be opened
+9ae60ef renderer: let the GPU read DRAW_INDEX_INDIRECT arguments
+8dfa7a4 buffer_cache: count only the copied bytes of an in-flight read-back
+7b1645d renderer: let the GPU read DRAW_INDIRECT arguments
+25be3c2 renderer: resolve DCC fast clears on the GPU for texture binds too
+5475d3e buffer_cache: treat bytes of an in-flight read-back as GPU-dirty
+1e4c658 shader: read shader headers without faulting on foreign GPU writes
+13b5167 renderer: deliver EOP interrupts from GPU markers, not submission ends
+f6fb071 buffer_cache: let guest threads wait for their own read-backs
+096cb22 profiler: Tracy GPU zones for guest and emulator GPU work
+43562e5 renderer: skip DCC clear checks until guest writes change the metadata
+41a46e3 profiler: zones on cross-thread GPU-thread work and read-back drains
+f2cb4e3 window: publish the title without waiting for the main thread
+760f34c guest_gpu: coalesce submits for release_mem label writes without interrupts
+6c957d5 renderer: resolve GPU-written DCC fast clears on the GPU
+8e3f6e3 profiler: zones on texture-cache image lifetime and copy paths
+225cc58 profiler: zones for stream-buffer reuse waits and render-target lookup
+7cb08d7 kernel: rescan when a free guest region is taken during reservation
+1bedf87 windows: declare longPathAware so game assets past MAX_PATH open
+cf8caba profiler: only emit frame marks once Tracy has started
+effd7e8 profiler: name threads for OS tools and add zones on blocking waits
+1db9992 shader: accept stale dense index on typed image handles with valid uses

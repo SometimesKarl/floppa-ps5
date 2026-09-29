@@ -1,0 +1,10 @@
+# X59-guard-test (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+## watchdog
+## stats lines
+--- Error ---
+System RAM is almost exhausted (6482 MB free). The emulator stopped so that Windows does not freeze. Close other applications (browsers, Discord, launchers) and start the game again; in-game saves on disk are kept. (emulator-settings.ini: low_memory_stop_mib=99999, 0 disables this check)

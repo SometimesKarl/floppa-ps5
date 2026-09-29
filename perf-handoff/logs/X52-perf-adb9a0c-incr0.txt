@@ -1,0 +1,201 @@
+# X52-perf-adb9a0c-incr0 (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s   454 frames  45.4 FPS  worst  220.7 ms
+    10s   427 frames  42.7 FPS  worst   62.7 ms
+    20s   358 frames  35.8 FPS  worst 1362.1 ms
+    30s   354 frames  35.4 FPS  worst  139.8 ms
+    40s   422 frames  42.2 FPS  worst   62.3 ms
+    50s   426 frames  42.6 FPS  worst   48.3 ms
+    60s   425 frames  42.5 FPS  worst   46.6 ms
+    70s   427 frames  42.7 FPS  worst   44.2 ms
+    80s   424 frames  42.4 FPS  worst   53.8 ms
+    90s   425 frames  42.5 FPS  worst   53.8 ms
+   100s   326 frames  32.6 FPS  worst   82.0 ms
+   110s   226 frames  22.6 FPS  worst  826.5 ms
+   120s   334 frames  33.4 FPS  worst 4754.1 ms
+   130s   363 frames  36.3 FPS  worst 1000.2 ms
+   140s   317 frames  31.7 FPS  worst  233.5 ms
+   150s   170 frames  17.0 FPS  worst 1523.0 ms
+   160s   325 frames  32.5 FPS  worst   82.2 ms
+   170s   334 frames  33.4 FPS  worst   61.2 ms
+   180s   332 frames  33.2 FPS  worst  106.0 ms
+   190s   250 frames  25.0 FPS  worst   83.8 ms
+   200s   171 frames  17.1 FPS  worst  103.8 ms
+   210s   143 frames  14.3 FPS  worst  109.5 ms
+   220s   153 frames  15.3 FPS  worst  101.0 ms
+   230s   171 frames  17.1 FPS  worst   99.9 ms
+   240s   127 frames  12.7 FPS  worst  100.4 ms
+   250s   137 frames  13.7 FPS  worst  100.9 ms
+   260s    53 frames   5.3 FPS  worst   83.5 ms
+## watchdog
+17:24:09 watchdog: guarding pid 20224 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\adb9a0c-clangcl\kyty_emulator.exe), limit 1024 MiB
+17:24:09 watchdog: free RAM 10103 MiB, test working set 1077 MiB (peak 1664, private 2123)
+17:24:19 watchdog: free RAM 10111 MiB, test working set 1082 MiB (peak 1664, private 2128)
+17:24:29 watchdog: free RAM 5760 MiB, test working set 5574 MiB (peak 5574, private 5441)
+17:24:39 watchdog: free RAM 5577 MiB, test working set 5698 MiB (peak 5698, private 5570)
+17:24:49 watchdog: free RAM 5088 MiB, test working set 6252 MiB (peak 6252, private 5695)
+17:24:59 watchdog: free RAM 4211 MiB, test working set 7288 MiB (peak 7288, private 5838)
+17:25:09 watchdog: free RAM 4181 MiB, test working set 7334 MiB (peak 7334, private 5842)
+17:25:19 watchdog: free RAM 4183 MiB, test working set 7335 MiB (peak 7337, private 5844)
+17:25:29 watchdog: free RAM 4159 MiB, test working set 7336 MiB (peak 7337, private 5844)
+17:25:39 watchdog: free RAM 4176 MiB, test working set 7337 MiB (peak 7337, private 5844)
+17:25:49 watchdog: free RAM 4204 MiB, test working set 7338 MiB (peak 7338, private 5844)
+17:25:59 watchdog: free RAM 4234 MiB, test working set 7340 MiB (peak 7340, private 5844)
+17:26:09 watchdog: free RAM 3992 MiB, test working set 7492 MiB (peak 7492, private 5844)
+17:26:19 watchdog: free RAM 2243 MiB, test working set 9862 MiB (peak 9862, private 5964)
+17:26:30 watchdog: free RAM 1982 MiB, test working set 9961 MiB (peak 9961, private 6013)
+17:26:40 watchdog: free RAM 1883 MiB, test working set 10472 MiB (peak 10472, private 6728)
+17:26:50 watchdog: free RAM 1830 MiB, test working set 10514 MiB (peak 10514, private 6624)
+17:27:00 watchdog: free RAM 1933 MiB, test working set 10573 MiB (peak 10676, private 6594)
+17:27:10 watchdog: free RAM 1970 MiB, test working set 10575 MiB (peak 10676, private 6554)
+17:27:20 watchdog: free RAM 1976 MiB, test working set 10576 MiB (peak 10676, private 6558)
+17:27:30 watchdog: free RAM 2008 MiB, test working set 10579 MiB (peak 10676, private 6564)
+17:27:40 watchdog: free RAM 2004 MiB, test working set 10583 MiB (peak 10676, private 6555)
+17:27:50 watchdog: free RAM 2019 MiB, test working set 10581 MiB (peak 10676, private 6428)
+17:28:00 watchdog: free RAM 2069 MiB, test working set 10583 MiB (peak 10676, private 6426)
+17:28:10 watchdog: free RAM 2088 MiB, test working set 10584 MiB (peak 10676, private 6168)
+17:28:20 watchdog: free RAM 2087 MiB, test working set 10581 MiB (peak 10676, private 6178)
+17:28:30 watchdog: free RAM 2078 MiB, test working set 10581 MiB (peak 10676, private 6168)
+17:28:40 watchdog: free RAM 2095 MiB, test working set 10582 MiB (peak 10676, private 6167)
+17:28:46 watchdog: test pid 20224 exited
+## stats lines
+GPU stats per second: draws 610 dispatches 2021 | begin rendering 610 end 610 | global barriers 25718 (8136 skipped as repeats) | image barrier batches 4282
+GPU stats: draws per second: indirect 40, direct by vertices x instances <=6 552 <=64 0 <=1024 0 <=65536 18 larger 0
+GPU stats: color targets by binds: 3840x2160 309/s 1920x1080 53/s 3328x1872 46/s 120x67 44/s 480x270 44/s 240x135 44/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 566] [renderDraw.cpp:1193 34] [bufferCache.cpp:146 6] [bufferCache.cpp:493 4] [streamBuffer.cpp:238 0]
+hitch summary: 17 of 454 frames over 45 ms; mostly: shader 1 texture 8 buffer 2 guest-idle 6 other 0
+GPU stats per second: draws 520 dispatches 3203 | begin rendering 520 end 520 | global barriers 31083 (10172 skipped as repeats) | image barrier batches 6483
+GPU stats: draws per second: indirect 44, direct by vertices x instances <=6 396 <=64 0 <=1024 36 <=65536 44 larger 0
+GPU stats: color targets by binds: 3840x2160 489/s 3328x1872 68/s 2432x1368 7/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 474] [renderDraw.cpp:1193 38] [bufferCache.cpp:146 4] [bufferCache.cpp:493 3]
+hitch summary: 33 of 427 frames over 45 ms; mostly: texture 3 gpu-wait 5 guest-idle 22 other 3
+GPU stats per second: draws 2426 dispatches 2572 | begin rendering 697 end 697 | global barriers 26355 (8829 skipped as repeats) | image barrier batches 5583
+GPU stats: draws per second: indirect 36, direct by vertices x instances <=6 600 <=64 246 <=1024 986 <=65536 547 larger 11
+GPU stats: color targets by binds: 1920x1080 1317/s 960x540 394/s 3840x2160 348/s 2432x1368 309/s 3328x1872 200/s 1216x684 79/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 527] [bufferCache.cpp:493 68] [image.cpp:283 51] [renderDraw.cpp:1193 33] [bufferCache.cpp:146 10] [streamBuffer.cpp:238 7] [tiler.cpp:348 1] [context.cpp:47 0]
+hitch summary: 31 of 358 frames over 45 ms; mostly: shader 2 texture 1 gpu-wait 10 guest-idle 10 other 8
+GPU stats per second: draws 9190 dispatches 2621 | begin rendering 1208 end 1208 | global barriers 28056 (9957 skipped as repeats) | image barrier batches 6446
+GPU stats: draws per second: indirect 35, direct by vertices x instances <=6 1226 <=64 895 <=1024 3288 <=65536 3433 larger 314
+GPU stats: color targets by binds: 1920x1080 6804/s 2432x1368 1971/s 960x540 1190/s 1216x684 565/s 3840x2160 115/s 1024x1024 70/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 833] [bufferCache.cpp:493 208] [image.cpp:283 80] [renderDraw.cpp:1193 34] [new: same attachments, clear 25] [bufferCache.cpp:146 24] [streamBuffer.cpp:238 2] [tiler.cpp:348 1] [image.cpp:293 0]
+hitch summary: 48 of 355 frames over 45 ms; mostly: shader 4 gpu-wait 29 guest-idle 6 other 9
+GPU stats per second: draws 9627 dispatches 3140 | begin rendering 1680 end 1680 | global barriers 34448 (12392 skipped as repeats) | image barrier batches 8039
+GPU stats: draws per second: indirect 42, direct by vertices x instances <=6 1549 <=64 1256 <=1024 3893 <=65536 2784 larger 103
+GPU stats: color targets by binds: 1920x1080 8819/s 960x540 1999/s 2432x1368 528/s 3840x2160 419/s 1216x684 95/s 1024x1024 84/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1119] [bufferCache.cpp:493 234] [image.cpp:283 176] [new: same attachments, clear 83] [renderDraw.cpp:1193 41] [bufferCache.cpp:146 27]
+hitch summary: 7 of 423 frames over 45 ms; mostly: gpu-wait 2 other 5
+GPU stats per second: draws 9879 dispatches 3195 | begin rendering 1630 end 1630 | global barriers 35066 (12611 skipped as repeats) | image barrier batches 8115
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 1576 <=64 1278 <=1024 3961 <=65536 2980 larger 43
+GPU stats: color targets by binds: 1920x1080 9665/s 960x540 2130/s 3840x2160 426/s 2432x1368 128/s 1024x1024 85/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1138] [bufferCache.cpp:493 234] [image.cpp:283 107] [new: same attachments, clear 85] [renderDraw.cpp:1193 42] [bufferCache.cpp:146 24]
+hitch summary: 1 of 426 frames over 45 ms; mostly: other 1
+GPU stats per second: draws 9304 dispatches 3197 | begin rendering 1640 end 1640 | global barriers 35081 (12617 skipped as repeats) | image barrier batches 8154
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 1578 <=64 1279 <=1024 3966 <=65536 2396 larger 43
+GPU stats: color targets by binds: 1920x1080 8498/s 960x540 2133/s 3840x2160 426/s 2432x1368 128/s 1024x1024 85/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1140] [bufferCache.cpp:493 211] [image.cpp:283 138] [new: same attachments, clear 85] [renderDraw.cpp:1193 40] [bufferCache.cpp:146 25]
+hitch summary: 0 of 427 frames over 45 ms; mostly: other 0
+GPU stats per second: draws 9859 dispatches 3195 | begin rendering 1683 end 1683 | global barriers 35056 (12607 skipped as repeats) | image barrier batches 8171
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 1576 <=64 1278 <=1024 3961 <=65536 2958 larger 43
+GPU stats: color targets by binds: 1920x1080 9620/s 960x540 2130/s 3840x2160 426/s 2432x1368 128/s 1024x1024 85/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1138] [bufferCache.cpp:493 231] [image.cpp:283 163] [new: same attachments, clear 84] [renderDraw.cpp:1193 41] [bufferCache.cpp:146 26]
+hitch summary: 2 of 426 frames over 45 ms; mostly: guest-idle 1 other 1
+GPU stats per second: draws 9673 dispatches 3186 | begin rendering 1616 end 1616 | global barriers 34929 (12561 skipped as repeats) | image barrier batches 8079
+GPU stats: draws per second: indirect 42, direct by vertices x instances <=6 1569 <=64 1272 <=1024 3943 <=65536 2804 larger 42
+GPU stats: color targets by binds: 1920x1080 9078/s 960x540 2061/s 3840x2160 424/s 2432x1368 345/s 1024x1024 85/s 1216x684 60/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1135] [bufferCache.cpp:493 225] [image.cpp:283 104] [new: same attachments, clear 84] [renderDraw.cpp:1193 41] [bufferCache.cpp:146 26]
+hitch summary: 3 of 425 frames over 45 ms; mostly: gpu-wait 2 guest-idle 1 other 0
+GPU stats per second: draws 9338 dispatches 3195 | begin rendering 1672 end 1672 | global barriers 35058 (12609 skipped as repeats) | image barrier batches 8163
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 1576 <=64 1278 <=1024 3961 <=65536 2438 larger 43
+GPU stats: color targets by binds: 1920x1080 8466/s 960x540 2100/s 3840x2160 426/s 2432x1368 241/s 1024x1024 85/s 1216x684 30/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1139] [bufferCache.cpp:493 226] [image.cpp:283 157] [new: same attachments, clear 85] [renderDraw.cpp:1193 41] [bufferCache.cpp:146 24]
+hitch summary: 2 of 426 frames over 45 ms; mostly: gpu-wait 1 other 1
+GPU stats per second: draws 8262 dispatches 2575 | begin rendering 1252 end 1252 | global barriers 28039 (10006 skipped as repeats) | image barrier batches 6511
+GPU stats: draws per second: indirect 35, direct by vertices x instances <=6 1225 <=64 954 <=1024 3203 <=65536 2811 larger 35
+GPU stats: color targets by binds: 1920x1080 7911/s 960x540 1967/s 3840x2160 214/s 2432x1368 104/s 1024x1024 69/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 863] [bufferCache.cpp:493 186] [image.cpp:283 104] [new: same attachments, clear 40] [renderDraw.cpp:1193 33] [bufferCache.cpp:146 24] [image.cpp:293 2] [tiler.cpp:348 0]
+hitch summary: 60 of 322 frames over 45 ms; mostly: shader 1 gpu-wait 41 guest-idle 8 other 10
+hitch summary: 18 of 226 frames over 45 ms; mostly: shader 1 buffer 1 gpu-wait 11 guest-idle 2 other 3
+GPU stats per second: draws 4722 dispatches 1617 | begin rendering 1084 end 1084 | global barriers 16533 (5884 skipped as repeats) | image barrier batches 3923
+GPU stats: draws per second: indirect 20, direct by vertices x instances <=6 485 <=64 202 <=1024 844 <=65536 3165 larger 5
+GPU stats: color targets by binds: 1920x1080 7687/s 960x540 517/s 2432x1368 60/s 3840x2160 20/s 1024x1024 12/s 864x486 0/s
+GPU stats: rendering ended by (per second): [renderDraw.cpp:1294 474] [graphicsRun.cpp:1460 471] [bufferCache.cpp:493 33] [new: same attachments, clear 29] [image.cpp:283 24] [bufferCache.cpp:146 22] [renderDraw.cpp:1193 19] [streamBuffer.cpp:238 8] [tiler.cpp:348 2] [image.cpp:293 1]
+TextureCache: recreating a format 91 image at 0x000000053bcf0000 for other view formats (#1)
+TextureCache: recreating a format 91 image at 0x000000053d8b0000 for other view formats (#2)
+TextureCache: recreating a format 91 image at 0x000000053fe50000 for other view formats (#3)
+TextureCache: recreating a format 91 image at 0x0000000543de0000 for other view formats (#4)
+TextureCache: recreating a format 91 image at 0x000000053d8b0000 for other view formats (#5)
+TextureCache: recreating a format 91 image at 0x000000053bcf0000 for other view formats (#6)
+hitch summary: 18 of 392 frames over 45 ms; mostly: shader 4 pipeline 1 texture 3 buffer 2 guest-idle 6 other 2
+GPU stats per second: draws 7534 dispatches 3182 | begin rendering 1647 end 1647 | global barriers 31689 (11149 skipped as repeats) | image barrier batches 7539
+GPU stats: draws per second: indirect 48, direct by vertices x instances <=6 734 <=64 390 <=1024 1252 <=65536 4912 larger 198
+GPU stats: color targets by binds: 1920x1080 9398/s 2432x1368 824/s 3840x2160 274/s 3328x1872 89/s 960x540 77/s 1024x1024 60/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 896] [renderDraw.cpp:1294 579] [new: same attachments, clear 75] [bufferCache.cpp:146 36] [renderDraw.cpp:1193 36] [textureCache.cpp:1643 9] [streamBuffer.cpp:238 6] [tiler.cpp:348 4] [bufferCache.cpp:493 4] [image.cpp:293 1]
+hitch summary: 6 of 347 frames over 45 ms; mostly: shader 2 texture 1 guest-idle 2 other 1
+GPU stats per second: draws 13551 dispatches 2614 | begin rendering 1399 end 1399 | global barriers 29043 (10243 skipped as repeats) | image barrier batches 6502
+GPU stats: draws per second: indirect 61, direct by vertices x instances <=6 883 <=64 1476 <=1024 2797 <=65536 7035 larger 1299
+GPU stats: color targets by binds: 1920x1080 23680/s 960x540 351/s 3840x2160 324/s 2432x1368 212/s 512x512 143/s 1024x1024 52/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1196] [new: same attachments, clear 78] [bufferCache.cpp:146 53] [renderDraw.cpp:1193 32] [streamBuffer.cpp:238 22] [tiler.cpp:348 7] [textureCache.cpp:1643 5] [bufferCache.cpp:493 5] [image.cpp:293 1] [context.cpp:47 0]
+GPU stats per second: draws 19759 dispatches 2357 | begin rendering 1681 end 1681 | global barriers 28144 (10083 skipped as repeats) | image barrier batches 6006
+GPU stats: draws per second: indirect 64, direct by vertices x instances <=6 1747 <=64 2640 <=1024 1829 <=65536 9874 larger 3605
+GPU stats: color targets by binds: 1920x1080 33164/s 960x540 1634/s 512x512 223/s 3840x2160 127/s 2432x1368 98/s 1024x1024 64/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1438] [new: same attachments, clear 95] [bufferCache.cpp:146 90] [renderDraw.cpp:1193 32] [streamBuffer.cpp:238 11] [new: other attachments 10] [image.cpp:283 5] [tiler.cpp:348 1] [bufferCache.cpp:493 1]
+hitch summary: 1 of 319 frames over 45 ms; mostly: other 1
+GPU stats per second: draws 11517 dispatches 1220 | begin rendering 1014 end 1014 | global barriers 14411 (5168 skipped as repeats) | image barrier batches 3168
+GPU stats: draws per second: indirect 33, direct by vertices x instances <=6 1149 <=64 1835 <=1024 949 <=65536 5584 larger 1968
+GPU stats: color targets by binds: 1920x1080 20333/s 960x540 1162/s 512x512 114/s 3840x2160 65/s 2432x1368 51/s 480x270 33/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 724] [renderDraw.cpp:1294 95] [bufferCache.cpp:146 50] [new: same attachments, clear 49] [new: other attachments 34] [renderDraw.cpp:1193 16] [renderCompute.cpp:368 14] [textureCache.cpp:1643 11] [image.cpp:283 9] [bufferCache.cpp:493 5]
+hitch summary: 12 of 163 frames over 45 ms; mostly: pipeline 2 texture 1 other 9
+GPU stats per second: draws 21053 dispatches 2479 | begin rendering 1779 end 1779 | global barriers 29574 (10583 skipped as repeats) | image barrier batches 6292
+GPU stats: draws per second: indirect 67, direct by vertices x instances <=6 2146 <=64 2904 <=1024 1796 <=65536 10341 larger 3799
+GPU stats: color targets by binds: 1920x1080 33228/s 960x540 1989/s 512x512 234/s 3840x2160 134/s 2432x1368 100/s 1024x1024 67/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1507] [new: same attachments, clear 100] [bufferCache.cpp:146 97] [renderDraw.cpp:1193 33] [new: other attachments 24] [image.cpp:283 11] [bufferCache.cpp:493 7]
+hitch summary: 3 of 336 frames over 45 ms; mostly: other 3
+GPU stats per second: draws 19255 dispatches 2511 | begin rendering 1815 end 1815 | global barriers 29957 (10733 skipped as repeats) | image barrier batches 6399
+GPU stats: draws per second: indirect 68, direct by vertices x instances <=6 1837 <=64 2313 <=1024 1496 <=65536 9837 larger 3705
+GPU stats: color targets by binds: 1920x1080 31650/s 960x540 1518/s 512x512 237/s 3840x2160 136/s 2432x1368 104/s 480x270 68/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1524] [new: same attachments, clear 102] [bufferCache.cpp:146 99] [renderDraw.cpp:1193 34] [renderDraw.cpp:1294 34] [image.cpp:283 8] [new: other attachments 7] [tiler.cpp:348 2] [bufferCache.cpp:493 2] [streamBuffer.cpp:238 2]
+hitch summary: 3 of 339 frames over 45 ms; mostly: shader 1 other 2
+GPU stats per second: draws 18192 dispatches 2524 | begin rendering 1855 end 1855 | global barriers 30121 (10811 skipped as repeats) | image barrier batches 6462
+GPU stats: draws per second: indirect 68, direct by vertices x instances <=6 3339 <=64 2686 <=1024 1418 <=65536 7724 larger 2956
+GPU stats: color targets by binds: 1920x1080 25079/s 960x540 2263/s 512x512 239/s 3840x2160 147/s 2432x1368 104/s 480x270 68/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 1524] [new: same attachments, clear 102] [bufferCache.cpp:146 92] [new: other attachments 42] [renderDraw.cpp:1193 34] [renderDraw.cpp:1294 34] [image.cpp:283 23] [tiler.cpp:348 3] [renderCompute.cpp:368 1] [streamBuffer.cpp:238 1]
+hitch summary: 5 of 341 frames over 45 ms; mostly: texture 1 other 4
+GPU stats per second: draws 16108 dispatches 1587 | begin rendering 1145 end 1145 | global barriers 18907 (6787 skipped as repeats) | image barrier batches 4023
+GPU stats: draws per second: indirect 43, direct by vertices x instances <=6 9812 <=64 1308 <=1024 834 <=65536 3102 larger 1009
+GPU stats: color targets by binds: 1920x1080 17537/s 960x540 722/s 512x512 150/s 3840x2160 107/s 2432x1368 66/s 1024x1024 43/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 943] [new: same attachments, clear 64] [bufferCache.cpp:146 48] [bufferCache.cpp:493 41] [renderDraw.cpp:1193 20] [image.cpp:283 14] [new: other attachments 13] [streamBuffer.cpp:238 2] [tiler.cpp:348 0]
+hitch summary: 123 of 214 frames over 45 ms; mostly: other 123
+GPU stats per second: draws 18386 dispatches 1221 | begin rendering 1147 end 1147 | global barriers 14378 (5156 skipped as repeats) | image barrier batches 3096
+GPU stats: draws per second: indirect 33, direct by vertices x instances <=6 12434 <=64 1290 <=1024 857 <=65536 2904 larger 868
+GPU stats: color targets by binds: 1920x1080 21653/s 960x540 777/s 512x512 114/s 3840x2160 81/s 2432x1368 49/s 1024x1024 33/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 702] [renderDraw.cpp:1294 231] [bufferCache.cpp:493 67] [new: same attachments, clear 48] [bufferCache.cpp:146 38] [renderDraw.cpp:1193 15] [image.cpp:283 14] [new: other attachments 14] [renderCompute.cpp:368 14] [streamBuffer.cpp:238 3]
+hitch summary: 150 of 163 frames over 45 ms; mostly: other 150
+GPU stats per second: draws 19729 dispatches 1091 | begin rendering 848 end 848 | global barriers 12989 (4659 skipped as repeats) | image barrier batches 2772
+GPU stats: draws per second: indirect 30, direct by vertices x instances <=6 12970 <=64 2259 <=1024 1477 <=65536 2217 larger 777
+GPU stats: color targets by binds: 1920x1080 20425/s 960x540 850/s 512x512 103/s 3840x2160 74/s 2432x1368 44/s 480x270 30/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 647] [bufferCache.cpp:493 60] [new: same attachments, clear 44] [bufferCache.cpp:146 36] [new: other attachments 28] [image.cpp:283 15] [renderDraw.cpp:1193 14] [streamBuffer.cpp:238 4] [tiler.cpp:348 0]
+hitch summary: 148 of 148 frames over 45 ms; mostly: other 148
+GPU stats per second: draws 20389 dispatches 1224 | begin rendering 1057 end 1057 | global barriers 14480 (5199 skipped as repeats) | image barrier batches 3124
+GPU stats: draws per second: indirect 33, direct by vertices x instances <=6 12578 <=64 2519 <=1024 1728 <=65536 2692 larger 839
+GPU stats: color targets by binds: 1920x1080 22541/s 960x540 914/s 512x512 115/s 3840x2160 82/s 2432x1368 51/s 1024x1024 33/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 715] [renderDraw.cpp:1294 138] [new: same attachments, clear 49] [bufferCache.cpp:146 45] [new: other attachments 44] [bufferCache.cpp:493 28] [renderDraw.cpp:1193 15] [image.cpp:283 14] [renderCompute.cpp:368 8] [tiler.cpp:348 1]
+hitch summary: 141 of 165 frames over 45 ms; mostly: other 141
+GPU stats per second: draws 20276 dispatches 1155 | begin rendering 1006 end 1006 | global barriers 13683 (4914 skipped as repeats) | image barrier batches 2942
+GPU stats: draws per second: indirect 31, direct by vertices x instances <=6 12822 <=64 2205 <=1024 1784 <=65536 2584 larger 851
+GPU stats: color targets by binds: 1920x1080 22110/s 960x540 745/s 512x512 108/s 3840x2160 77/s 2432x1368 48/s 480x270 31/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 675] [renderDraw.cpp:1294 109] [bufferCache.cpp:493 51] [new: same attachments, clear 46] [new: other attachments 46] [bufferCache.cpp:146 42] [renderDraw.cpp:1193 14] [image.cpp:283 13] [renderCompute.cpp:368 7] [streamBuffer.cpp:238 2]
+hitch summary: 141 of 154 frames over 45 ms; mostly: other 141
+GPU stats per second: draws 19830 dispatches 949 | begin rendering 798 end 798 | global barriers 11297 (4052 skipped as repeats) | image barrier batches 2405
+GPU stats: draws per second: indirect 26, direct by vertices x instances <=6 13927 <=64 1802 <=1024 1407 <=65536 1949 larger 719
+GPU stats: color targets by binds: 1920x1080 20859/s 960x540 313/s 512x512 90/s 3840x2160 64/s 2432x1368 39/s 480x270 26/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 562] [bufferCache.cpp:493 85] [new: other attachments 62] [new: same attachments, clear 38] [bufferCache.cpp:146 28] [image.cpp:283 13] [renderDraw.cpp:1193 10] [streamBuffer.cpp:238 0]
+hitch summary: 129 of 129 frames over 45 ms; mostly: other 129
+GPU stats per second: draws 19665 dispatches 1059 | begin rendering 794 end 794 | global barriers 12610 (4522 skipped as repeats) | image barrier batches 2684
+GPU stats: draws per second: indirect 29, direct by vertices x instances <=6 13196 <=64 1880 <=1024 1562 <=65536 2183 larger 816
+GPU stats: color targets by binds: 1920x1080 21010/s 960x540 252/s 512x512 100/s 3840x2160 71/s 2432x1368 43/s 1024x1024 29/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 627] [new: other attachments 44] [new: same attachments, clear 42] [bufferCache.cpp:146 34] [bufferCache.cpp:493 18] [image.cpp:283 14] [renderDraw.cpp:1193 14] [streamBuffer.cpp:238 0]
+hitch summary: 144 of 144 frames over 45 ms; mostly: other 144

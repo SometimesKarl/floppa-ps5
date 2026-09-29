@@ -1,0 +1,77 @@
+# DS-demons-souls/S17 (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s     2 frames   0.2 FPS  worst   16.8 ms
+    50s    11 frames   1.1 FPS  worst 57785.6 ms
+    60s   109 frames  10.9 FPS  worst 1083.7 ms
+    70s   116 frames  11.6 FPS  worst  534.1 ms
+   100s    37 frames   3.7 FPS  worst 30800.1 ms
+   110s   163 frames  16.3 FPS  worst  350.0 ms
+## watchdog
+03:36:00 watchdog: guarding pid 3620 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\0521196-clangcl\kyty_emulator.exe), limit 1024 MiB
+03:36:00 watchdog: free RAM 8365 MiB, test working set 10 MiB (peak 10, private 22)
+03:36:10 watchdog: free RAM 6824 MiB, test working set 1508 MiB (peak 1508, private 2324)
+03:36:20 watchdog: free RAM 6791 MiB, test working set 1760 MiB (peak 1760, private 2347)
+03:36:30 watchdog: free RAM 6688 MiB, test working set 1830 MiB (peak 1830, private 2352)
+03:36:40 watchdog: free RAM 6550 MiB, test working set 1883 MiB (peak 1883, private 2355)
+03:36:50 watchdog: free RAM 6393 MiB, test working set 1994 MiB (peak 1994, private 2359)
+03:37:00 watchdog: free RAM 6252 MiB, test working set 2125 MiB (peak 2125, private 2361)
+03:37:10 watchdog: free RAM 6174 MiB, test working set 2217 MiB (peak 2218, private 2361)
+03:37:20 watchdog: free RAM 6138 MiB, test working set 2255 MiB (peak 2256, private 2362)
+03:37:30 watchdog: free RAM 6053 MiB, test working set 2348 MiB (peak 2349, private 2364)
+03:37:40 watchdog: free RAM 5905 MiB, test working set 2535 MiB (peak 2535, private 2368)
+03:37:50 watchdog: free RAM 5383 MiB, test working set 2941 MiB (peak 2983, private 2533)
+03:38:00 watchdog: free RAM 4787 MiB, test working set 3639 MiB (peak 3662, private 3192)
+03:38:10 watchdog: free RAM 4670 MiB, test working set 4008 MiB (peak 4124, private 3220)
+03:38:21 watchdog: free RAM 4625 MiB, test working set 4030 MiB (peak 4156, private 3241)
+03:38:31 watchdog: free RAM 4664 MiB, test working set 4073 MiB (peak 4186, private 3286)
+03:38:41 watchdog: free RAM 4589 MiB, test working set 4116 MiB (peak 4207, private 3620)
+03:38:52 watchdog: free RAM 4895 MiB, test working set 4668 MiB (peak 4683, private 4357)
+03:39:02 watchdog: free RAM 4777 MiB, test working set 4764 MiB (peak 4793, private 4393)
+03:39:12 watchdog: free RAM 4654 MiB, test working set 4878 MiB (peak 5291, private 4083)
+03:39:22 watchdog: free RAM 4647 MiB, test working set 4870 MiB (peak 5291, private 4077)
+03:39:32 watchdog: free RAM 4490 MiB, test working set 5047 MiB (peak 5291, private 4253)
+03:39:42 watchdog: free RAM 4731 MiB, test working set 4919 MiB (peak 5291, private 4251)
+## stats lines
+uploads in 10 s: 36 images 651 MiB; top: [0x102a400000 1024x1024 fmt 126 mips 1: 1 x, 320 MiB, 0 from GPU-written buffers covering 0%; for tex 1; cpu-dirty 1, changed 64ths 0.0] [0x28d700000 2560x1440 fmt 98 mips 1: 1 x, 60 MiB, 1 from GPU-written buffers covering 0%; for tex 1; cpu-dirty 1, changed 64ths 64.0] [0x1026c00000 1024x1024 fmt 134 mips 11: 1 x, 44 MiB, 0 from GPU-written buffers covering 0%; for tex 1; cpu-dirty 1, changed 64ths 0.0] [0x281500000 2560x1440 fmt 97 mips 1: 7 x, 29 MiB, 7 from GPU-written buffers covering 1%; for cclear 7; cpu-dirty 2, changed 64ths 64.0] [0x28c4f0000 214x120 fmt 97 mips 1: 1 x, 18 MiB, 1 from GPU-written buffers covering 0%; for tex 1; cpu-dirty 1, changed 64ths 64.0] [0x2b4780000 214x120 fmt 97 mips 1: 1 x, 18 MiB, 0 from GPU-written buffers covering 0%; for storage 1; cpu-dirty 1, changed 64ths 0.0] [0x2b3600000 214x120 fmt 97 mips 1: 1 x, 18 MiB, 0 from GPU-written buffers covering 0%; for storage 1; cpu-dirty 1, changed 64ths 0.0] [0x2b2480000 214x120 fmt 97 mips 1: 1 x, 18 MiB, 0 from GPU-written buffers covering 0%; for storage 1; cpu-dirty 1, changed 64ths 0.0]; partial uploads skipped 0 MiB; buffer-written images uploaded whole: c
+uploads in 10 s: 3 images 18 MiB; top: [0x294dc0000 1280x720 fmt 97 mips 4: 1 x, 10 MiB, 0 from GPU-written buffers covering 0%; for storage 1; cpu-dirty 1, changed 64ths 0.0] [0x2b69e0000 1280x720 fmt 97 mips 1: 1 x, 8 MiB, 0 from GPU-written buffers covering 0%; for storage 1; cpu-dirty 1, changed 64ths 0.0] [0x208a40000 32x32 fmt 141 mips 1: 1 x, 0 MiB, 0 from GPU-written buffers covering 0%; for tex 1; cpu-dirty 1, changed 64ths 0.0]; partial uploads skipped 0 MiB; buffer-written images uploaded whole: cpu-dirty 1 mips/layers 0 layout 0 tiling 0 band >= 3/4 0 depth 0
+image churn in 10 s: [insert 0x1026c00000 1024x1024 fmt 134 @textureCache.cpp:1989 x1] [insert 0x102a400000 1024x1024 fmt 126 @textureCache.cpp:1989 x1] [insert 0x281500000 2560x1440 fmt 97 @textureCache.cpp:1989 x1] [insert 0x28b3b0000 1024x1024 fmt 126 @textureCache.cpp:1989 x1] [insert 0x28c4f0000 214x120 fmt 97 @textureCache.cpp:1989 x1] [insert 0x28d700000 2560x1440 fmt 98 @textureCache.cpp:1989 x1] [insert 0x2ae1c0000 2560x1440 fmt 97 @textureCache.cpp:1989 x1] [insert 0x2b2480000 214x120 fmt 97 @textureCache.cpp:1989 x1] [insert 0x2b3600000 214x120 fmt 97 @textureCache.cpp:1989 x1] [insert 0x2b4780000 214x120 fmt 97 @textureCache.cpp:1989 x1]
+GPU stats per second: draws 0 dispatches 4 | begin rendering 0 end 0 | global barriers 8 (4 skipped as repeats) | image barrier batches 7
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 0 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 0/s 2560x1440 0/s
+GPU stats: rendering ended by (per second): [context.cpp:47 0] [graphicsRun.cpp:1460 0]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2309 MiB budget=7378 MiB (VMA blocks 2219 MiB)
+TextureCache: 64 images 819 MiB (GPU-written tiled 51 355 MiB); device usage 2309 MiB, critical 5165 MiB; freed 0, kept 0, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s
+TextureCache host memory: registered 807 MiB for 819 MiB of guest data; 0 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 126:2 324->329 130:1 15->19 98:4 60->63 101:3 22->23 103:1 10->10 124:1 0->0; PRT-tiled 0 images 0 MiB host; mipped 9 images 83 MiB host, largest level 71 of 93 MiB guest
+image invalidations in 10 s: fill 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) copy 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) storage 6 (images 8 MiB, overlapped 8 MiB, largest write 7.5 MiB) other 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB)
+uploads in 10 s: 51 images 4252 MiB; top: [0x282e50000 3840x2160 fmt 97 mips 1: 20 x, 1275 MiB, 20 from GPU-written buffers covering 6%; for cclear 20; cpu-dirty 1, changed 64ths 8.0] [0x28d700000 2560x1440 fmt 98 mips 1: 19 x, 1140 MiB, 19 from GPU-written buffers covering 100%; for tex 19; cpu-dirty 0, changed 64ths 64.0] [0x28c4f0000 214x120 fmt 97 mips 1: 19 x, 342 MiB, 19 from GPU-written buffers covering 95%; for tex 19; cpu-dirty 1, changed 64ths 64.0] [0x289110000 2560x1440 fmt 83 mips 1: 19 x, 285 MiB, 19 from GPU-written buffers covering 100%; for tex 19; cpu-dirty 0, changed 64ths 64.0] [0x28d0f0000 1280x720 fmt 97 mips 1: 20 x, 150 MiB, 20 from GPU-written buffers covering 94%; for rt 20; cpu-dirty 1, changed 64ths 64.0] [0x28d870000 1280x720 fmt 97 mips 1: 20 x, 150 MiB, 20 from GPU-written buffers covering 95%; for rt 20; cpu-dirty 1, changed 64ths 64.0] [0x28dff0000 1280x720 fmt 97 mips 1: 20 x, 150 MiB, 20 from GPU-written buffers covering 95%; for rt 20; cpu-dirty 1, changed 64ths 64.0] [0x28e770000 1280x720 fmt 97 mips 1: 20 x, 150 MiB, 20 from GPU-written buffers covering 95%; for rt 20; cpu-dirty 1, changed 64ths 64.0]; partial uploads skipped 1104 MiB; buffer-w
+GPU stats per second: draws 75 dispatches 1586 | begin rendering 75 end 75 | global barriers 3086 (1594 skipped as repeats) | image barrier batches 2571
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 75 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 44/s 2560x1440 15/s 3840x2160 7/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 67] [tiler.cpp:348 7] [bufferCache.cpp:148 0] [context.cpp:47 0] [renderCompute.cpp:368 0]
+image invalidations in 10 s: fill 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) copy 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) storage 1819 (images 15538 MiB, overlapped 7164 MiB, largest write 18.0 MiB) other 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB)
+hitch summary: 78 of 80 frames over 45 ms; mostly: pipeline 6 texture 36 guest-idle 13 other 23
+uploads in 10 s: 26 images 30644 MiB; top: [0x282e50000 3840x2160 fmt 97 mips 1: 149 x, 9499 MiB, 149 from GPU-written buffers covering 6%; for cclear 149; cpu-dirty 0, changed 64ths 5.0] [0x28d700000 2560x1440 fmt 98 mips 1: 150 x, 9000 MiB, 150 from GPU-written buffers covering 100%; for tex 150; cpu-dirty 0, changed 64ths 64.0] [0x28c4f0000 214x120 fmt 97 mips 1: 150 x, 2700 MiB, 150 from GPU-written buffers covering 100%; for tex 150; cpu-dirty 0, changed 64ths 64.0] [0x289110000 2560x1440 fmt 83 mips 1: 150 x, 2250 MiB, 150 from GPU-written buffers covering 100%; for tex 150; cpu-dirty 0, changed 64ths 64.0] [0x28d0f0000 1280x720 fmt 97 mips 1: 150 x, 1125 MiB, 150 from GPU-written buffers covering 99%; for rt 150; cpu-dirty 0, changed 64ths 64.0] [0x28d870000 1280x720 fmt 97 mips 1: 150 x, 1125 MiB, 150 from GPU-written buffers covering 100%; for rt 150; cpu-dirty 0, changed 64ths 64.0] [0x28dff0000 1280x720 fmt 97 mips 1: 150 x, 1125 MiB, 150 from GPU-written buffers covering 100%; for rt 150; cpu-dirty 0, changed 64ths 64.0] [0x28e770000 1280x720 fmt 97 mips 1: 150 x, 1125 MiB, 150 from GPU-written buffers covering 100%; for rt 150; cpu-dirty 0, changed 64ths 64.0]; partial
+uploads in 10 s: 36 images 13615 MiB; top: [0x282e50000 3840x2160 fmt 97 mips 1: 67 x, 4271 MiB, 67 from GPU-written buffers covering 6%; for cclear 67; cpu-dirty 0, changed 64ths 5.0] [0x28d700000 2560x1440 fmt 98 mips 1: 66 x, 3960 MiB, 66 from GPU-written buffers covering 100%; for tex 66; cpu-dirty 0, changed 64ths 64.0] [0x28c4f0000 214x120 fmt 97 mips 1: 66 x, 1188 MiB, 66 from GPU-written buffers covering 100%; for tex 66; cpu-dirty 0, changed 64ths 64.0] [0x289110000 2560x1440 fmt 83 mips 1: 66 x, 990 MiB, 66 from GPU-written buffers covering 100%; for tex 66; cpu-dirty 0, changed 64ths 64.0] [0x28d870000 1280x720 fmt 97 mips 1: 66 x, 495 MiB, 66 from GPU-written buffers covering 100%; for rt 66; cpu-dirty 0, changed 64ths 64.0] [0x28e770000 1280x720 fmt 97 mips 1: 66 x, 495 MiB, 66 from GPU-written buffers covering 100%; for rt 66; cpu-dirty 0, changed 64ths 64.0] [0x28dff0000 1280x720 fmt 97 mips 1: 66 x, 495 MiB, 66 from GPU-written buffers covering 100%; for rt 66; cpu-dirty 0, changed 64ths 64.0] [0x28d0f0000 1280x720 fmt 97 mips 1: 66 x, 495 MiB, 66 from GPU-written buffers covering 99%; for rt 66; cpu-dirty 0, changed 64ths 64.0]; partial uploads skipped 3894 MiB; bu
+GPU stats per second: draws 40 dispatches 844 | begin rendering 40 end 40 | global barriers 1639 (845 skipped as repeats) | image barrier batches 1369
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 40 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 24/s 2560x1440 8/s 3840x2160 4/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 35] [tiler.cpp:348 4] [context.cpp:47 0] [bufferCache.cpp:499 0] [bufferCache.cpp:148 0]
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=2816 MiB budget=7378 MiB (VMA blocks 2616 MiB)
+TextureCache: 101 images 1115 MiB (GPU-written tiled 77 615 MiB); device usage 2816 MiB, critical 5165 MiB; freed 13, kept 270, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s
+TextureCache host memory: registered 1103 MiB for 1115 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 126:3 340->345 130:1 15->19 98:9 69->71 64:2 64->64 101:3 22->23 37:10 71->71; PRT-tiled 0 images 0 MiB host; mipped 20 images 163 MiB host, largest level 130 of 172 MiB guest
+image invalidations in 10 s: fill 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) copy 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) storage 3816 (images 32555 MiB, overlapped 15035 MiB, largest write 18.0 MiB) other 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB)
+hitch summary: 143 of 156 frames over 45 ms; mostly: pipeline 3 texture 88 gpu-wait 1 guest-idle 16 other 35
+image churn in 10 s: [delete 0x28b3b0000 1024x1024 fmt 126 @textureCache.cpp:1079 x1] [delete 0x28c4f0000 214x120 fmt 97 @textureCache.cpp:1079 x1] [delete 0x317a00000 2048x2048 fmt 37 @textureCache.cpp:2824 x1] [insert 0x217f00000 3840x2160 fmt 64 @textureCache.cpp:1989 x1] [insert 0x219f00000 3840x2160 fmt 64 @textureCache.cpp:1989 x1] [insert 0x282e50000 3840x2160 fmt 97 @textureCache.cpp:1989 x1] [insert 0x28b3b0000 1024x1024 fmt 126 @textureCache.cpp:1989 x1] [insert 0x28c4f0000 214x120 fmt 97 @textureCache.cpp:1989 x1] [insert 0x2ac500000 2560x1440 fmt 97 @textureCache.cpp:1989 x1] [insert 0x2b8750000 2560x1440 fmt 97 @textureCache.cpp:1989 x1] [insert 0x317a00000 2048x2048 fmt 37 @textureCache.cpp:1989 x1] [insert 0x319000000 2048x2048 fmt 37 @textureCache.cpp:1989 x1]
+uploads in 10 s: 25 images 34398 MiB; top: [0x282e50000 3840x2160 fmt 97 mips 1: 168 x, 10710 MiB, 168 from GPU-written buffers covering 6%; for cclear 168; cpu-dirty 0, changed 64ths 5.0] [0x28d700000 2560x1440 fmt 98 mips 1: 168 x, 10080 MiB, 168 from GPU-written buffers covering 100%; for tex 168; cpu-dirty 0, changed 64ths 64.0] [0x28c4f0000 214x120 fmt 97 mips 1: 168 x, 3024 MiB, 168 from GPU-written buffers covering 100%; for tex 168; cpu-dirty 0, changed 64ths 64.0] [0x289110000 2560x1440 fmt 83 mips 1: 168 x, 2520 MiB, 168 from GPU-written buffers covering 100%; for tex 168; cpu-dirty 0, changed 64ths 64.0] [0x28d0f0000 1280x720 fmt 97 mips 1: 168 x, 1260 MiB, 168 from GPU-written buffers covering 99%; for rt 168; cpu-dirty 0, changed 64ths 64.0] [0x28d870000 1280x720 fmt 97 mips 1: 168 x, 1260 MiB, 168 from GPU-written buffers covering 100%; for rt 168; cpu-dirty 0, changed 64ths 64.0] [0x28dff0000 1280x720 fmt 97 mips 1: 168 x, 1260 MiB, 168 from GPU-written buffers covering 100%; for rt 168; cpu-dirty 0, changed 64ths 64.0] [0x28e770000 1280x720 fmt 97 mips 1: 168 x, 1260 MiB, 168 from GPU-written buffers covering 100%; for rt 168; cpu-dirty 0, changed 64ths 64.0]; parti
+GPU stats per second: draws 168 dispatches 3581 | begin rendering 168 end 168 | global barriers 6965 (3596 skipped as repeats) | image barrier batches 5799
+GPU stats: draws per second: indirect 0, direct by vertices x instances <=6 168 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 1280x720 101/s 2560x1440 34/s 3840x2160 17/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 150] [tiler.cpp:348 17] [context.cpp:47 1] [bufferCache.cpp:148 0]
+image invalidations in 10 s: fill 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) copy 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB) storage 4056 (images 34603 MiB, overlapped 15981 MiB, largest write 18.0 MiB) other 0 (images 0 MiB, overlapped 0 MiB, largest write 0.0 MiB)
+hitch summary: 144 of 169 frames over 45 ms; mostly: pipeline 1 texture 57 gpu-wait 2 guest-idle 35 other 49

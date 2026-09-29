@@ -1,0 +1,68 @@
+82 samples under 'ExecutePreparedDraw'
+-- inclusive:
+ 100.0%  Libs::Graphics::CommandProcessor::ProcessPm4
+ 100.0%  Libs::Graphics::GuestGpu::Process
+ 100.0%  KERNEL32.DLL
+ 100.0%  std::invoke
+ 100.0%  ucrtbase.dll
+ 100.0%  Libs::Graphics::GuestGpu::ThreadRun
+ 100.0%  Libs::Graphics::RenderExecutor::ExecutePreparedDraw
+ 100.0%  ntdll.dll
+ 100.0%  std::thread::_Invoke<std::tuple<void (*)(void *),Libs::Graphics::GuestGpu *>,0,1>
+ 100.0%  Libs::Graphics::CommandProcessor::Process
+  52.4%  Libs::Graphics::RenderExecutor::DrawIndex
+  52.4%  Libs::Graphics::CpOpDrawIndexOffset
+  52.4%  Libs::Graphics::CommandProcessor::DrawIndexOffset
+  52.4%  Libs::Graphics::CommandProcessor::DrawIndex
+  47.6%  Libs::Graphics::RenderExecutor::DrawAuto
+  47.6%  Libs::Graphics::CpOpDrawIndexAuto
+  29.3%  Libs::Graphics::RenderExecutor::PrepareGraphicsBindings
+  20.7%  Libs::Graphics::BufferCache::ObtainBuffer
+  20.7%  amdvlk64.dll
+  19.5%  Libs::Graphics::RenderExecutor::RebindBuffers
+  18.3%  Libs::Graphics::NativeStorageBuffer
+  15.9%  Libs::Graphics::RenderExecutor::PrepareBindings
+  12.2%  Libs::Graphics::RenderExecutor::CommitBindings
+  12.2%  Libs::Graphics::RenderExecutor::ResolveTexture
+  11.0%  Libs::Graphics::MemoryTracker::Iterate
+  11.0%  Libs::Graphics::TextureCache::FindImage
+   9.8%  Libs::Graphics::RenderExecutor::AcquireRenderTargets
+   8.5%  Libs::Graphics::TextureCache::FindImagesInRegion
+   7.3%  vk::CommandBuffer::drawIndexed
+   7.3%  Libs::Graphics::EmitDrawPrimitives
+   7.3%  Libs::Graphics::BufferCache::SynchronizeBuffer
+   7.3%  Libs::Graphics::InlinePageOwnerList<Common::SlotId,16>::ForEach
+   7.3%  Libs::Graphics::TextureCache::ForEachPage
+   7.3%  Libs::Graphics::TextureCache::FindImagesInRegion::<lambda_13>::operator()
+   6.1%  Libs::Graphics::PipelineCache::GetGraphicsPipeline
+   6.1%  Libs::Graphics::Image::Transit
+   6.1%  Libs::Graphics::MemoryTracker::ForEachUploadRange
+   6.1%  Libs::Graphics::RegionManager::ForEachModifiedRange
+   6.1%  Libs::Graphics::MemoryTracker::ForEachUploadRange<`lambda at C:\Users\himav\Desktop\kyty ps5-src\src\graphics\host_gpu\renderer\cache\bufferCache.cpp:
+   4.9%  Libs::LibKernel::Memory::GuestBackingStore::TryReadBacking
+-- self:
+  20.7%  amdvlk64.dll
+   4.9%  ntdll.dll
+   3.7%  Libs::Graphics::PipelineCache::GetGraphicsPipeline
+   3.7%  VCRUNTIME140.dll
+   3.7%  Libs::Graphics::Image::AppendBarriers
+   2.4%  Libs::Graphics::BufferCache::ObtainBuffer
+   2.4%  Common::BitArray<1024>::BitArray
+   2.4%  Libs::Graphics::TrackingSpinLock::lock
+   2.4%  Common::SlotVector<Libs::Graphics::Buffer>::is_allocated
+   2.4%  Libs::Graphics::RenderExecutor::CommitBindings
+   2.4%  Libs::Graphics::SetGraphicsDynamicParams
+   2.4%  Common::SlotVector<Libs::Graphics::Image>::is_allocated
+   2.4%  std::upper_bound
+   2.4%  Libs::Graphics::DrawCallInfo::IsIndexed
+   2.4%  Libs::Graphics::Buffer::Handle
+   2.4%  Libs::Graphics::RenderExecutor::AcquireRenderTargets
+   2.4%  Common::LeastRecentlyUsedCache<Common::SlotId,unsigned long long>::Touch
+   2.4%  Common::BitArray<1024>::operator^
+   1.2%  Libs::Graphics::ShaderRecompiler::IR::FindBinding
+   1.2%  std::span<Libs::Graphics::PreparedBindings *const,18446744073709551615>::end
+   1.2%  Libs::Graphics::RegionManager::GetPageRange
+   1.2%  Libs::Graphics::RegionManager::IsModified<0>
+   1.2%  KERNEL32.DLL
+   1.2%  std::unique_ptr<std::vector<unsigned long long,std::allocator<unsigned long long> >,std::default_delete<std::vector<unsigned long long,std::allocator<
+   1.2%  std::_Tree<std::_Tmap_traits<unsigned long long,Libs::Graphics::TextureCache::MetaDataInfo,std::less<unsigned long long>,std::allocator<std::pair<cons

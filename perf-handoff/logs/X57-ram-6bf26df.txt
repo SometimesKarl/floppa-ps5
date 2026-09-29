@@ -1,0 +1,45 @@
+# X57-ram-6bf26df (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s   547 frames  54.7 FPS  worst  166.9 ms
+    10s   548 frames  54.8 FPS  worst   50.2 ms
+    20s   564 frames  56.4 FPS  worst   36.3 ms
+    30s   492 frames  49.2 FPS  worst 1010.3 ms
+    40s   471 frames  47.1 FPS  worst  244.1 ms
+    50s   270 frames  27.0 FPS  worst   68.1 ms
+## watchdog
+03:53:34 watchdog: guarding pid 21064 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\6bf26df-clangcl\kyty_emulator.exe), limit 1024 MiB
+03:53:34 watchdog: free RAM 7859 MiB, test working set 783 MiB (peak 783, private 2113)
+03:53:44 watchdog: free RAM 7554 MiB, test working set 1088 MiB (peak 1675, private 2447)
+03:53:54 watchdog: free RAM 6664 MiB, test working set 1849 MiB (peak 1993, private 3014)
+03:54:04 watchdog: free RAM 5788 MiB, test working set 2819 MiB (peak 2819, private 5288)
+03:54:14 watchdog: free RAM 5101 MiB, test working set 3457 MiB (peak 3457, private 5290)
+03:54:24 watchdog: free RAM 4907 MiB, test working set 3707 MiB (peak 3707, private 5290)
+03:54:34 watchdog: free RAM 4513 MiB, test working set 4103 MiB (peak 4103, private 5361)
+03:54:44 watchdog: free RAM 3099 MiB, test working set 5703 MiB (peak 5716, private 5747)
+03:54:53 watchdog: test pid 21064 exited
+## stats lines
+hitch summary: 7 of 547 frames over 45 ms; mostly: texture 2 buffer 2 gpu-wait 1 guest-idle 1 other 1
+hitch summary: 0 of 548 frames over 45 ms; mostly: other 0
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=3905 MiB budget=7378 MiB (VMA blocks 3797 MiB)
+TextureCache: 107 images 1136 MiB (GPU-written tiled 92 911 MiB); device usage 3905 MiB, critical 5165 MiB; freed 50, kept 6502, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s
+TextureCache host memory: registered 1197 MiB for 1136 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 97:17 515->539 130:3 69->89 143:1 16->24 9:12 10->17 126:1 64->65 124:1 14->14; PRT-tiled 0 images 0 MiB host; mipped 1 images 24 MiB host, largest level 12 of 16 MiB guest
+hitch summary: 0 of 566 frames over 45 ms; mostly: other 0
+hitch summary: 4 of 492 frames over 45 ms; mostly: pipeline 2 texture 1 guest-idle 1 other 0
+hitch summary: 10 of 472 frames over 45 ms; mostly: pipeline 1 guest-idle 7 other 2
+Memory heap 0 (system, 8139 MiB): usage=706 MiB budget=7476 MiB (VMA blocks 672 MiB)
+Memory heap 1 (device-local, 8176 MiB): usage=4277 MiB budget=7378 MiB (VMA blocks 4166 MiB)
+TextureCache: 136 images 1630 MiB (GPU-written tiled 109 1397 MiB); device usage 4277 MiB, critical 5165 MiB; freed 86, kept 8340, emergency-freed 0 (0 MiB written back), replaced 0 in 30 s
+TextureCache host memory: registered 1696 MiB for 1630 MiB of guest data; 1 unregistered slots 0 MiB; largest overheads (format:count guest->host MiB): 97:28 955->983 130:3 69->89 143:1 16->24 9:14 34->41 124:1 24->25 37:7 123->123; PRT-tiled 0 images 0 MiB host; mipped 8 images 88 MiB host, largest level 56 of 78 MiB guest
+## resident.txt
+working set 5731 MiB (1467221 pages)
+  guest-mapped         4368 MiB   shared     4368 MiB
+  host-private          942 MiB   shared        0 MiB
+  guest-private         363 MiB   shared        0 MiB
+  host-image             48 MiB   shared       45 MiB
+  guest-image            10 MiB   shared        9 MiB
+  host-mapped             1 MiB   shared        1 MiB

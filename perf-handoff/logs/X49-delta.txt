@@ -1,0 +1,51 @@
+# X49-delta (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Resolution control: render_resolution 1920 pixels wide (titles with a verified profile only)
+Initialized: Config
+Initialized: Log
+## 10 s frame windows
+     0s   543 frames  54.3 FPS  worst  151.0 ms
+    10s   600 frames  60.0 FPS  worst   17.7 ms
+    20s   441 frames  44.1 FPS  worst   94.4 ms
+    30s   314 frames  31.4 FPS  worst  227.8 ms
+    40s   520 frames  52.0 FPS  worst  523.2 ms
+    50s   405 frames  40.5 FPS  worst  234.3 ms
+    60s   393 frames  39.3 FPS  worst  116.4 ms
+    70s   346 frames  34.6 FPS  worst   79.8 ms
+    80s   340 frames  34.0 FPS  worst 2178.1 ms
+    90s   242 frames  24.2 FPS  worst   90.1 ms
+   100s   167 frames  16.7 FPS  worst   97.0 ms
+   110s   205 frames  20.5 FPS  worst  121.1 ms
+   120s   173 frames  17.3 FPS  worst   89.5 ms
+   130s   188 frames  18.8 FPS  worst  233.1 ms
+   140s   224 frames  22.4 FPS  worst   52.5 ms
+   150s   425 frames  42.5 FPS  worst   66.4 ms
+   160s   262 frames  26.2 FPS  worst   34.8 ms
+## watchdog
+16:50:30 watchdog: guarding pid 3476 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\b1fdf8a-clangcl\kyty_emulator.exe), limit 1024 MiB
+16:50:30 watchdog: free RAM 10332 MiB, test working set 105 MiB (peak 105)
+16:50:40 watchdog: free RAM 9299 MiB, test working set 1218 MiB (peak 1741)
+16:50:50 watchdog: free RAM 5173 MiB, test working set 5491 MiB (peak 5491)
+16:51:00 watchdog: free RAM 5094 MiB, test working set 5576 MiB (peak 5588)
+16:51:10 watchdog: free RAM 3696 MiB, test working set 7108 MiB (peak 7108)
+16:51:20 watchdog: free RAM 2455 MiB, test working set 8781 MiB (peak 8781)
+16:51:30 watchdog: free RAM 1727 MiB, test working set 10043 MiB (peak 10043)
+16:51:40 watchdog: free RAM 1627 MiB, test working set 10160 MiB (peak 10160)
+16:51:50 watchdog: free RAM 1642 MiB, test working set 10168 MiB (peak 10176)
+16:52:00 watchdog: free RAM 1640 MiB, test working set 10228 MiB (peak 10228)
+16:52:10 watchdog: free RAM 1576 MiB, test working set 10308 MiB (peak 10310)
+16:52:20 watchdog: free RAM 1627 MiB, test working set 10246 MiB (peak 10422)
+16:52:30 watchdog: free RAM 1625 MiB, test working set 10248 MiB (peak 10422)
+16:52:40 watchdog: free RAM 1643 MiB, test working set 10250 MiB (peak 10422)
+16:52:50 watchdog: free RAM 1663 MiB, test working set 10251 MiB (peak 10422)
+16:53:00 watchdog: free RAM 1654 MiB, test working set 10251 MiB (peak 10422)
+16:53:10 watchdog: free RAM 1659 MiB, test working set 10252 MiB (peak 10422)
+16:53:20 watchdog: free RAM 1658 MiB, test working set 10263 MiB (peak 10422)
+16:53:28 watchdog: test pid 3476 exited
+## stats lines
+SRT memo: 61164 hits, 24365 misses, 239808 walks without memo (2687 misses first of their shader, 1 guest memory changed, 50 reads per memo); user-data registers that changed: s12 7452 s28 5370 s0 3296 s24 1230 s4 1098 s8 1073; walks without memo vs the shader's previous walk: 4% identical, descriptors 76% same, flat SRT words 94% same
+TextureCache: recreating a format 91 image at 0x000000053bcf0000 for other view formats (#1)
+SRT memo: 60107 hits, 52105 misses, 631862 walks without memo (6668 misses first of their shader, 0 guest memory changed, 70 reads per memo); user-data registers that changed: s28 12500 s12 12447 s0 3843 s4 3350 s10 2613 s8 2447; walks without memo vs the shader's previous walk: 5% identical, descriptors 73% same, flat SRT words 93% same
+SRT memo: 60103 hits, 78546 misses, 984136 walks without memo (12606 misses first of their shader, 5 guest memory changed, 80 reads per memo); user-data registers that changed: s28 18670 s12 15142 s4 7000 s0 6445 s10 5192 s8 4724; walks without memo vs the shader's previous walk: 5% identical, descriptors 72% same, flat SRT words 93% same
+SRT memo: 34342 hits, 80103 misses, 1150889 walks without memo (6573 misses first of their shader, 1 guest memory changed, 99 reads per memo); user-data registers that changed: s28 31250 s0 26033 s4 4659 s12 4240 s10 2850 s8 1649; walks without memo vs the shader's previous walk: 0% identical, descriptors 87% same, flat SRT words 97% same
+SRT memo: 32161 hits, 88541 misses, 1290515 walks without memo (6674 misses first of their shader, 0 guest memory changed, 94 reads per memo); user-data registers that changed: s28 34819 s0 24852 s4 7951 s12 6161 s10 2686 s8 1777; walks without memo vs the shader's previous walk: 1% identical, descriptors 85% same, flat SRT words 97% same

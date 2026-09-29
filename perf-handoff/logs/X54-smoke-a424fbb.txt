@@ -1,0 +1,215 @@
+# X54-smoke-a424fbb (curated measurement lines; raw logs stay on the test PC)
+## build / env
+Initialized: Config
+Initialized: Log
+Initialized: Timer
+## 10 s frame windows
+     0s   350 frames  35.0 FPS  worst 1344.3 ms
+    10s   385 frames  38.5 FPS  worst  225.5 ms
+    20s   308 frames  30.8 FPS  worst   60.8 ms
+    40s    32 frames   3.2 FPS  worst 20679.1 ms
+    50s   255 frames  25.5 FPS  worst 2678.2 ms
+    60s   322 frames  32.2 FPS  worst  455.7 ms
+    70s   212 frames  21.2 FPS  worst  933.8 ms
+    80s    19 frames   1.9 FPS  worst   70.6 ms
+## watchdog
+03:28:48 watchdog: guarding pid 11096 (c:\users\himav\desktop\kyty ps5\performance experiments\builds\a424fbb-clangcl\kyty_emulator.exe), limit 1024 MiB
+03:28:48 watchdog: free RAM 8533 MiB, test working set 18 MiB (peak 18, private 52)
+03:28:58 watchdog: free RAM 7390 MiB, test working set 1091 MiB (peak 1676, private 2449)
+03:29:08 watchdog: free RAM 6592 MiB, test working set 1860 MiB (peak 1994, private 2731)
+03:29:18 watchdog: free RAM 3932 MiB, test working set 4625 MiB (peak 4625, private 5128)
+03:29:28 watchdog: free RAM 3084 MiB, test working set 5696 MiB (peak 5708, private 6075)
+03:29:38 watchdog: free RAM 3058 MiB, test working set 5706 MiB (peak 5710, private 6035)
+03:29:48 watchdog: free RAM 2571 MiB, test working set 6239 MiB (peak 6330, private 6302)
+03:29:58 watchdog: free RAM 2440 MiB, test working set 6394 MiB (peak 6431, private 6291)
+03:30:08 watchdog: free RAM 1518 MiB, test working set 7345 MiB (peak 7465, private 6491)
+03:30:18 watchdog: free RAM 1571 MiB, test working set 7349 MiB (peak 7465, private 6486)
+03:30:28 watchdog: free RAM 1573 MiB, test working set 7386 MiB (peak 7465, private 6496)
+03:30:34 watchdog: low: free RAM 979 MiB, commit headroom 33527 MiB, test working set 8159 MiB (peak 8159, private 6491)
+03:30:36 watchdog: low: free RAM 930 MiB, commit headroom 33469 MiB, test working set 8226 MiB (peak 8335, private 6533)
+03:30:38 watchdog: free RAM 634 MiB, commit headroom 33586 MiB < 1024: terminated test pid 11096
+## stats lines
+GPU stats per second: draws 97 dispatches 163 | begin rendering 97 end 97 | global barriers 2898 (921 skipped as repeats) | image barrier batches 409
+GPU stats: draws per second: indirect 5, direct by vertices x instances <=6 92 <=64 0 <=1024 0 <=65536 0 larger 0
+GPU stats: color targets by binds: 2432x1368 31/s 1920x1080 18/s 120x67 9/s 480x270 9/s 240x135 9/s 3840x2160 7/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 92] [renderDraw.cpp:1190 4] [bufferCache.cpp:148 1] [bufferCache.cpp:499 0] [streamBuffer.cpp:238 0]
+hitch summary: 18 of 351 frames over 45 ms; mostly: pipeline 2 texture 3 buffer 2 guest-idle 10 other 1
+GPU stats per second: draws 500 dispatches 2057 | begin rendering 500 end 500 | global barriers 23801 (7559 skipped as repeats) | image barrier batches 4212
+GPU stats: draws per second: indirect 36, direct by vertices x instances <=6 442 <=64 0 <=1024 0 <=65536 22 larger 0
+GPU stats: color targets by binds: 3840x2160 308/s 3328x1872 65/s 1920x1080 29/s 120x67 29/s 480x270 29/s 240x135 29/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 461] [renderDraw.cpp:1190 34] [bufferCache.cpp:148 3] [bufferCache.cpp:499 1] [context.cpp:47 0]
+hitch summary: 48 of 385 frames over 45 ms; mostly: pipeline 1 texture 3 gpu-wait 11 guest-idle 31 other 2
+GPU stats per second: draws 448 dispatches 2719 | begin rendering 448 end 448 | global barriers 26447 (8680 skipped as repeats) | image barrier batches 5511
+GPU stats: draws per second: indirect 37, direct by vertices x instances <=6 340 <=64 0 <=1024 34 <=65536 37 larger 0
+GPU stats: color targets by binds: 3840x2160 398/s 3328x1872 66/s 2432x1368 21/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 409] [renderDraw.cpp:1190 35] [bufferCache.cpp:148 2] [bufferCache.cpp:499 2]
+SRT verify: 65536 materializations, 0 mismatches
+clean-read verify: 65536 cached reads, 0 mismatches
+hitch summary: 47 of 307 frames over 45 ms; mostly: pipeline 1 gpu-wait 24 guest-idle 10 other 12
+GPU stats per second: draws 149 dispatches 787 | begin rendering 143 end 143 | global barriers 7902 (2585 skipped as repeats) | image barrier batches 1612
+GPU stats: draws per second: indirect 11, direct by vertices x instances <=6 109 <=64 1 <=1024 14 <=65536 13 larger 0
+GPU stats: color targets by binds: 3840x2160 131/s 3328x1872 16/s 1920x1080 4/s 2432x1368 3/s 120x67 2/s 480x270 2/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 129] [renderDraw.cpp:1190 10] [streamBuffer.cpp:238 1] [bufferCache.cpp:148 1] [tiler.cpp:348 1] [bufferCache.cpp:499 0] [image.cpp:303 0]
+clean-read verify: 131072 cached reads, 0 mismatches
+clean-read verify: 196608 cached reads, 0 mismatches
+clean-read verify: 262144 cached reads, 0 mismatches
+clean-read verify: 327680 cached reads, 0 mismatches
+clean-read verify: 393216 cached reads, 0 mismatches
+clean-read verify: 458752 cached reads, 0 mismatches
+clean-read verify: 524288 cached reads, 0 mismatches
+clean-read verify: 589824 cached reads, 0 mismatches
+clean-read verify: 655360 cached reads, 0 mismatches
+clean-read verify: 720896 cached reads, 0 mismatches
+clean-read verify: 786432 cached reads, 0 mismatches
+clean-read verify: 851968 cached reads, 0 mismatches
+clean-read verify: 917504 cached reads, 0 mismatches
+clean-read verify: 983040 cached reads, 0 mismatches
+clean-read verify: 1048576 cached reads, 0 mismatches
+clean-read verify: 1114112 cached reads, 0 mismatches
+clean-read verify: 1179648 cached reads, 0 mismatches
+clean-read verify: 1245184 cached reads, 0 mismatches
+SRT verify: 131072 materializations, 0 mismatches
+clean-read verify: 1310720 cached reads, 0 mismatches
+clean-read verify: 1376256 cached reads, 0 mismatches
+clean-read verify: 1441792 cached reads, 0 mismatches
+clean-read verify: 1507328 cached reads, 0 mismatches
+clean-read verify: 1572864 cached reads, 0 mismatches
+clean-read verify: 1638400 cached reads, 0 mismatches
+clean-read verify: 1703936 cached reads, 0 mismatches
+hitch summary: 4 of 179 frames over 45 ms; mostly: pipeline 2 other 2
+GPU stats per second: draws 2951 dispatches 1122 | begin rendering 525 end 525 | global barriers 11894 (4188 skipped as repeats) | image barrier batches 2754
+GPU stats: draws per second: indirect 15, direct by vertices x instances <=6 499 <=64 349 <=1024 1366 <=65536 705 larger 16
+GPU stats: color targets by binds: 1920x1080 2160/s 960x540 671/s 2432x1368 223/s 3328x1872 92/s 1216x684 50/s 3840x2160 50/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 331] [bufferCache.cpp:499 93] [image.cpp:303 68] [renderDraw.cpp:1190 15] [bufferCache.cpp:148 14] [streamBuffer.cpp:238 4]
+clean-read verify: 1769472 cached reads, 0 mismatches
+clean-read verify: 1835008 cached reads, 0 mismatches
+clean-read verify: 1900544 cached reads, 0 mismatches
+clean-read verify: 1966080 cached reads, 0 mismatches
+clean-read verify: 2031616 cached reads, 0 mismatches
+clean-read verify: 2097152 cached reads, 0 mismatches
+clean-read verify: 2162688 cached reads, 0 mismatches
+clean-read verify: 2228224 cached reads, 0 mismatches
+clean-read verify: 2293760 cached reads, 0 mismatches
+clean-read verify: 2359296 cached reads, 0 mismatches
+clean-read verify: 2424832 cached reads, 0 mismatches
+clean-read verify: 2490368 cached reads, 0 mismatches
+clean-read verify: 2555904 cached reads, 0 mismatches
+clean-read verify: 2621440 cached reads, 0 mismatches
+clean-read verify: 2686976 cached reads, 0 mismatches
+SRT verify: 196608 materializations, 0 mismatches
+clean-read verify: 2752512 cached reads, 0 mismatches
+clean-read verify: 2818048 cached reads, 0 mismatches
+clean-read verify: 2883584 cached reads, 0 mismatches
+clean-read verify: 2949120 cached reads, 0 mismatches
+clean-read verify: 3014656 cached reads, 0 mismatches
+clean-read verify: 3080192 cached reads, 0 mismatches
+clean-read verify: 3145728 cached reads, 0 mismatches
+clean-read verify: 3211264 cached reads, 0 mismatches
+clean-read verify: 3276800 cached reads, 0 mismatches
+clean-read verify: 3342336 cached reads, 0 mismatches
+clean-read verify: 3407872 cached reads, 0 mismatches
+clean-read verify: 3473408 cached reads, 0 mismatches
+clean-read verify: 3538944 cached reads, 0 mismatches
+clean-read verify: 3604480 cached reads, 0 mismatches
+clean-read verify: 3670016 cached reads, 0 mismatches
+clean-read verify: 3735552 cached reads, 0 mismatches
+clean-read verify: 3801088 cached reads, 0 mismatches
+clean-read verify: 3866624 cached reads, 0 mismatches
+clean-read verify: 3932160 cached reads, 0 mismatches
+clean-read verify: 3997696 cached reads, 0 mismatches
+clean-read verify: 4063232 cached reads, 0 mismatches
+SRT verify: 262144 materializations, 0 mismatches
+clean-read verify: 4128768 cached reads, 0 mismatches
+clean-read verify: 4194304 cached reads, 0 mismatches
+clean-read verify: 4259840 cached reads, 0 mismatches
+clean-read verify: 4325376 cached reads, 0 mismatches
+clean-read verify: 4390912 cached reads, 0 mismatches
+clean-read verify: 4456448 cached reads, 0 mismatches
+clean-read verify: 4521984 cached reads, 0 mismatches
+clean-read verify: 4587520 cached reads, 0 mismatches
+clean-read verify: 4653056 cached reads, 0 mismatches
+clean-read verify: 4718592 cached reads, 0 mismatches
+clean-read verify: 4784128 cached reads, 0 mismatches
+clean-read verify: 4849664 cached reads, 0 mismatches
+clean-read verify: 4915200 cached reads, 0 mismatches
+clean-read verify: 4980736 cached reads, 0 mismatches
+clean-read verify: 5046272 cached reads, 0 mismatches
+hitch summary: 5 of 312 frames over 45 ms; mostly: pipeline 4 gpu-wait 1 other 0
+GPU stats per second: draws 7529 dispatches 2329 | begin rendering 1059 end 1059 | global barriers 25013 (8880 skipped as repeats) | image barrier batches 5833
+GPU stats: draws per second: indirect 31, direct by vertices x instances <=6 1096 <=64 788 <=1024 3061 <=65536 2210 larger 343
+GPU stats: color targets by binds: 1920x1080 7570/s 960x540 1559/s 2432x1368 93/s 1024x1024 62/s 3840x2160 37/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 761] [bufferCache.cpp:499 144] [image.cpp:303 63] [new: same attachments, clear 33] [renderDraw.cpp:1190 30] [bufferCache.cpp:148 26] [streamBuffer.cpp:238 1] [tiler.cpp:348 0] [image.cpp:313 0]
+clean-read verify: 5111808 cached reads, 0 mismatches
+clean-read verify: 5177344 cached reads, 0 mismatches
+clean-read verify: 5242880 cached reads, 0 mismatches
+clean-read verify: 5308416 cached reads, 0 mismatches
+clean-read verify: 5373952 cached reads, 0 mismatches
+SRT verify: 327680 materializations, 0 mismatches
+clean-read verify: 5439488 cached reads, 0 mismatches
+clean-read verify: 5505024 cached reads, 0 mismatches
+clean-read verify: 5570560 cached reads, 0 mismatches
+clean-read verify: 5636096 cached reads, 0 mismatches
+clean-read verify: 5701632 cached reads, 0 mismatches
+clean-read verify: 5767168 cached reads, 0 mismatches
+clean-read verify: 5832704 cached reads, 0 mismatches
+clean-read verify: 5898240 cached reads, 0 mismatches
+clean-read verify: 5963776 cached reads, 0 mismatches
+clean-read verify: 6029312 cached reads, 0 mismatches
+clean-read verify: 6094848 cached reads, 0 mismatches
+clean-read verify: 6160384 cached reads, 0 mismatches
+clean-read verify: 6225920 cached reads, 0 mismatches
+clean-read verify: 6291456 cached reads, 0 mismatches
+clean-read verify: 6356992 cached reads, 0 mismatches
+clean-read verify: 6422528 cached reads, 0 mismatches
+clean-read verify: 6488064 cached reads, 0 mismatches
+clean-read verify: 6553600 cached reads, 0 mismatches
+clean-read verify: 6619136 cached reads, 0 mismatches
+SRT verify: 393216 materializations, 0 mismatches
+clean-read verify: 6684672 cached reads, 0 mismatches
+clean-read verify: 6750208 cached reads, 0 mismatches
+clean-read verify: 6815744 cached reads, 0 mismatches
+clean-read verify: 6881280 cached reads, 0 mismatches
+clean-read verify: 6946816 cached reads, 0 mismatches
+clean-read verify: 7012352 cached reads, 0 mismatches
+clean-read verify: 7077888 cached reads, 0 mismatches
+clean-read verify: 7143424 cached reads, 0 mismatches
+clean-read verify: 7208960 cached reads, 0 mismatches
+clean-read verify: 7274496 cached reads, 0 mismatches
+clean-read verify: 7340032 cached reads, 0 mismatches
+clean-read verify: 7405568 cached reads, 0 mismatches
+clean-read verify: 7471104 cached reads, 0 mismatches
+clean-read verify: 7536640 cached reads, 0 mismatches
+clean-read verify: 7602176 cached reads, 0 mismatches
+clean-read verify: 7667712 cached reads, 0 mismatches
+clean-read verify: 7733248 cached reads, 0 mismatches
+clean-read verify: 7798784 cached reads, 0 mismatches
+clean-read verify: 7864320 cached reads, 0 mismatches
+clean-read verify: 7929856 cached reads, 0 mismatches
+clean-read verify: 7995392 cached reads, 0 mismatches
+clean-read verify: 8060928 cached reads, 0 mismatches
+clean-read verify: 8126464 cached reads, 0 mismatches
+clean-read verify: 8192000 cached reads, 0 mismatches
+clean-read verify: 8257536 cached reads, 0 mismatches
+SRT verify: 458752 materializations, 0 mismatches
+clean-read verify: 8323072 cached reads, 0 mismatches
+clean-read verify: 8388608 cached reads, 0 mismatches
+clean-read verify: 8454144 cached reads, 0 mismatches
+clean-read verify: 8519680 cached reads, 0 mismatches
+clean-read verify: 8585216 cached reads, 0 mismatches
+hitch summary: 13 of 251 frames over 45 ms; mostly: pipeline 4 gpu-wait 1 other 8
+GPU stats per second: draws 7488 dispatches 1879 | begin rendering 941 end 941 | global barriers 20556 (7377 skipped as repeats) | image barrier batches 4866
+GPU stats: draws per second: indirect 25, direct by vertices x instances <=6 939 <=64 683 <=1024 2497 <=65536 3292 larger 52
+GPU stats: color targets by binds: 1920x1080 8165/s 960x540 1271/s 3840x2160 92/s 2432x1368 75/s 1024x1024 50/s
+GPU stats: rendering ended by (per second): [graphicsRun.cpp:1460 662] [image.cpp:303 105] [bufferCache.cpp:499 78] [new: same attachments, clear 41] [renderDraw.cpp:1190 23] [bufferCache.cpp:148 22] [image.cpp:313 6] [tiler.cpp:348 1] [streamBuffer.cpp:238 1]
+clean-read verify: 8650752 cached reads, 0 mismatches
+clean-read verify: 8716288 cached reads, 0 mismatches
+clean-read verify: 8781824 cached reads, 0 mismatches
+clean-read verify: 8847360 cached reads, 0 mismatches
+clean-read verify: 8912896 cached reads, 0 mismatches
+clean-read verify: 8978432 cached reads, 0 mismatches
+clean-read verify: 9043968 cached reads, 0 mismatches
+clean-read verify: 9109504 cached reads, 0 mismatches
+clean-read verify: 9175040 cached reads, 0 mismatches
+clean-read verify: 9240576 cached reads, 0 mismatches
+clean-read verify: 9306112 cached reads, 0 mismatches
+clean-read verify: 9371648 cached reads, 0 mismatches
