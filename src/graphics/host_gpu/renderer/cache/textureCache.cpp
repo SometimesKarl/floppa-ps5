@@ -1,5 +1,6 @@
 #include "graphics/host_gpu/renderer/cache/textureCache.h"
 #include "graphics/host_gpu/renderer/hitchStats.h"
+#include "graphics/host_gpu/renderer/renderStats.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -984,8 +985,18 @@ TextureCache::OverlapResult TextureCache::ResolveOverlap(const ImageInfo& reques
 	}
 	auto&      cached       = *owner;
 	const auto current_tick = m_scheduler.CurrentTick();
+	// Submission ticks alone do not measure age: a title submitting many command buffers per
+	// frame makes a target used once per frame look idle. Demon's Souls aliases several 4K
+	// targets in one memory pool and had its 3840x2160 RGBA16F target deleted and re-created
+	// (and re-uploaded whole) ~25 times a second. Images looked up in this or the previous guest
+	// frame stay; overlapping images then coexist, as they do when the tick test keeps both.
+	const auto frame = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
+	// (Only titles that flip from the GPU advance the counter; others keep the tick test alone.)
+	const bool used_recently_in_frames = frame != 0 && cached.frame_accessed_last != UINT64_MAX &&
+	                                     frame - cached.frame_accessed_last < 2;
 	const bool safe_to_delete =
-	    current_tick - std::min(current_tick, cached.tick_accessed_last) > NumFramesBeforeRemoval;
+	    current_tick - std::min(current_tick, cached.tick_accessed_last) > NumFramesBeforeRemoval &&
+	    !used_recently_in_frames;
 
 	const uint32_t requested_block = requested.bytes_per_block * requested.samples;
 	const uint32_t cached_block    = cached.info.bytes_per_block * cached.info.samples;
@@ -1997,7 +2008,8 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 		if (view_layer >= 0) {
 			desc.view_info.base_layer = static_cast<uint32_t>(view_layer);
 		}
-		image.tick_accessed_last = m_scheduler.CurrentTick();
+		image.tick_accessed_last  = m_scheduler.CurrentTick();
+		image.frame_accessed_last = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
 		TouchImage(image);
 	}
 	MaterializeColorClear(result, desc, metadata_base_layer);
