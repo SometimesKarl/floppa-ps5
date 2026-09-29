@@ -43,3 +43,11 @@ cmake -S . -B _Build/linux-no-qt -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build _Build/linux-no-qt --target kyty_emulator kyty_tests -j3 -- -k 0
 ctest --test-dir _Build/linux-no-qt --output-on-failure --timeout 600 -j1
 ```
+
+## Windows-only code: MinGW syntax lane
+No MSVC SDK or clang-cl here. Windows branches are syntax-checked with
+`clang++ --target=x86_64-w64-mingw32 -std=c++20 -fsyntax-only -D_WIN32_WINNT=0x0A00` using a copy of
+`_Build/linux-no-qt/cmake_config.h` with `KYTY_PLATFORM KYTY_PLATFORM_WINDOWS` first on the include path
+(package mingw-w64). Checked clean for new code: systemInfo.cpp, main.cpp, memory.cpp (RAM attribution).
+Existing code reports MinGW-header gaps (VirtualAlloc2, MapViewOfFile3, GetThreadDescription); those
+are not errors under the MSVC SDK. This is not a substitute for the owner's clang-cl build.
