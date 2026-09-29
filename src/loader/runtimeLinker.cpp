@@ -780,8 +780,10 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 		// host exception on the faulting thread's own stack and overwrites that area, which the
 		// guest cannot know about (DS S20: a null pointer reloaded from [rsp-0x10]). Print it
 		// with the protection setting so a later report shows whether it was clobbered.
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 		std::printf("red zone protection: %s\n",
 		            Config::RedZoneProtectionEnabled() ? "enabled" : "disabled");
+#endif
 		if (info->rsp >= 128 && IsReadableRange(info->rsp - 128, 128)) {
 			const auto* red_zone = reinterpret_cast<const uint64_t*>(info->rsp - 128);
 			std::printf("below rsp (rsp-128 .. rsp):");
