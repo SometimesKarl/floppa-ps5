@@ -105,3 +105,20 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   (`roots[source]`, `condition_roots[index]`) are safe: those vectors are resized once, to full size.
 - Two SrtWalker objects per materialization are cheap (references + generation bump).
 - Next for D: W3b compiled program needs a differential harness first (ResourceMaterializationTests).
+
+### W1.2 follow-up: why the red-zone hypothesis is the lead
+- `--redzone` (Config red_zone_protection_enabled, Windows only, default off) makes
+  loader/redZonePatcher.cpp (from shadPS4) relocate memory instructions inside guest functions that
+  keep locals below rsp, so that a recoverable host fault on them cannot let Windows exception
+  dispatch overwrite those locals. `--amd-cpu` also runs the patcher but only for rsqrt emulation
+  (protect_memory stays false).
+- The S20 function fits the pattern: epilogue `pop rbx, r12..r15, rbp; ret` with no `sub rsp`, and a
+  local reloaded from [rsp-0x10]. The load between store and reload that could fault is
+  `blsi rbx,[rsi+rax*8]` (reads a bitmask); a recoverable read fault there happens when the page is
+  read-protected for GPU readback tracking. Still unproven: we have no evidence a fault occurred on
+  that thread before the crash. Recipe entry 10 gives the decisive test.
+- Not changed: making --redzone the default would patch guest code for every title; keep it opt-in
+  until the S21 run.
+- EmergencyCollect / RunGarbageCollector reviewed (W4.4 old plan): scans are bounded (8192 / 4096),
+  kept images are touched to the young end so they are not rescanned every tick, write-backs are
+  bounded by EvictionDownloadMax * 2 per collection. No change.
