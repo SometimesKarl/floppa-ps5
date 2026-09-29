@@ -11,16 +11,21 @@
 - `cmake --build _Build/linux-no-qt --target kyty_emulator kyty_tests -j3 -- -k 0`: exit 0 at d9d0f34
   (before e2c55da, which changes a test only). `kyty_emulator` links on Linux.
 
-## ctest (`ctest --test-dir _Build/linux-no-qt --timeout 600 -j1`), at e2c55da
+## ctest (`XDG_RUNTIME_DIR=<dir> ctest --test-dir _Build/linux-no-qt --output-on-failure --timeout 900 -j1`)
+History: at e2c55da 34 passed / 16 environment-blocked (harness required fragment barycentrics and
+image view min LOD; lavapipe has neither). ec6c6f7 makes both optional in the harness (still enabled
+where supported), so the GPU lane runs on lavapipe. Results at ec6c6f7:
+
 | Result | Count | Tests |
 |---|---|---|
-| Passed | 34 | emulator_user_name_cli, emulator_user_name_too_long, emulator_present_mode_cli, emulator_present_mode_invalid, ime_dialog, shader_cfg, scalar_provenance, image_page_table, memory_tracker, buffer_download_batch, page_manager, archive_file, avplayer_file, bit_array, pipeline_prewarm_format (new), low_memory_guard (new), lru_cache, mesh_dispatch, shader_vertex_metadata, resource_materialization, resource_tracking, event_queue_lifetime, sync_on_address, audio_out2_port, ngs2_sampler, pad_haptics, save_data_memory, ces, save_data_dialog, http_uri_parse, graphics_draw_offsets, virtual_memory_allocation, guest_red_zone_patcher, texture_cache_depth_readback |
-| Blocked by environment (not passed) | 15 | shader_recompiler_compute, shader_recompiler_alignbyte, graphics_pipeline_rasterization, command_scheduler_timeline, stream_buffer_ring, gpu_command_lane, pm4_context_state, gpu_tiler, texture_cache_layered_image, host_image_allocation, texture_cache_image_views, texture_cache_storage_sampled, compute_meta_clear_classification, buffer_cache_dirty_gc, color_render_target_1d: all stop at "VulkanHarness failed at dispatch: no Vulkan graphics+compute device with fragment barycentrics and 64-bit LDS atomics" |
-| Blocked by environment (not passed) | 1 | kernel_file_system: needs a Vulkan window device. With `SDL_VIDEO_DRIVER=offscreen XDG_RUNTIME_DIR=<dir>` SDL starts but "Could not find suitable device" (same barycentrics requirement) |
-| Failed (code) | 0 | shader_cfg failed before e2c55da (stale mesh-prolog test, pre-existing; fixed in the test) |
+| Passed | 47 | all CPU tests (34, see e2c55da list) plus shader_recompiler_alignbyte, graphics_pipeline_rasterization, command_scheduler_timeline, stream_buffer_ring, gpu_command_lane, pm4_context_state, gpu_tiler (after 3b4c5a0), texture_cache_layered_image, host_image_allocation, texture_cache_image_views, texture_cache_storage_sampled, buffer_cache_dirty_gc, color_render_target_1d |
+| Blocked by environment | 1 | kernel_file_system: needs the emulator's own Vulkan window device, which requires barycentrics |
+| Failed, pre-existing | 2 | shader_recompiler_compute ("UnifiedTextureCacheFlow ... registered compatible backing did not reuse one ImageId") and compute_meta_clear_classification ("aliased clear did not reuse its existing UNORM allocation", after "recreating a format 91 image ... for other view formats"). Both fail identically with textureCache.cpp from 9ceebc4, so not caused by this session. Suspected device-dependent (format capability), not investigated |
+| Timing-sensitive | (1) | gpu_command_lane "32-bit release boundary": failed 1 of 13 runs, only inside the full batch; a label-only release submits when > 1 ms passed since the last flush (bounded coalescing, by design). Interrupt releases flush at the latest at the end of the guest submission slice (graphicsRun.cpp) |
 
-Consequence: the GPU-side changes of this session (b2f8985 texture cache, f1061f8 prewarm parser is
-CPU-only and tested) and the Vulkan sync-validation idea for risk R1 cannot be exercised here.
+Fixed along the way: shader_cfg (stale test, e2c55da); gpu_tiler (PRT shader, 3b4c5a0).
+Pitfall: archive_file fails ("decode extended-length archive names") when ZArchive is rebuilt without
+3rdparty/patches/zarchive-reader.patch; see the reconfigure note in CLOUD-STATE.md.
 
 ## Tests added this session and how they were checked
 | Test | Checks | Extra verification |

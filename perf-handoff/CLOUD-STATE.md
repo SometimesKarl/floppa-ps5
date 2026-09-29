@@ -33,9 +33,13 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
 | RELEASE_MEM flush coalescing | yes | CommandProcessor::BufferFlushCoalesced |
 
 ## Build notes
-- Re-configuring an existing build dir fails in the zarchive FetchContent patch step (non-idempotent
-  `git apply`, 3rdparty/CMakeLists.txt). Workaround before any reconfigure:
-  `git -C _Build/linux-no-qt/_deps/zarchive_source-src checkout -- .`
+- Re-configuring an existing build dir can fail in the zarchive FetchContent patch step
+  (non-idempotent `git apply`, 3rdparty/CMakeLists.txt). If it fails: revert with
+  `git -C _Build/linux-no-qt/_deps/zarchive_source-src checkout -- .` and reconfigure. Afterwards CHECK
+  the patch is applied: `git -C _Build/linux-no-qt/_deps/zarchive_source-src apply --check --reverse
+  --ignore-whitespace 3rdparty/patches/zarchive-reader.patch` must succeed; if not, apply it
+  (`... apply --ignore-whitespace ...`) and rebuild, or archive_file fails. CMake left unchanged on
+  purpose: the owner's offline Windows deps cache is not in this checkout.
 - Linux build breakages found and fixed: Tracy link (eb8539c), allocSampler throw (b2d1654),
   Windows-only config call (1d2544c), avplayer timer link and non-copyable Pipeline in tests (625aed4).
 

@@ -22,3 +22,10 @@ local-validation-pending, rejected experiment.
 - No Windows toolchain here: clang-cl build and all Windows-only paths (fault handler backtrace,
   VirtualUnlock trim, red zone patcher, low-memory guard) are compile-unverified on Windows.
 - No AMD GPU: lavapipe results say nothing about AMD driver behaviour or timing.
+
+## Added later in the session
+| # | Risk | Label | Where | What would settle it |
+|---|---|---|---|---|
+| R6 | TileManager::AllocateScratch ends the process when VMA cannot allocate (RequireVulkanSuccess); image allocation retries after reclaiming, scratch does not. Adding reclaim needs the texture cache lock mid-upload | source-supported mechanism, never observed | image/tiler.cpp | A "allocate TileManager scratch buffer failed" stop in a log |
+| R7 | Two texture-cache reuse tests fail on lavapipe (UnifiedTextureCacheFlow, RenderExecutorColorMetadataClear), pre-existing | cloud-tested (lavapipe only) | cache/textureCache.cpp | Run shader_recompiler_compute_tests on the owner's AMD PC (recipe 14) |
+| R8 | 2D PRT specialization-constant shader computed wrong addresses on Mesa; whether AMD did too is unknown | cloud-tested | shaders/gpu_tiler_prt.comp | Fixed by 3b4c5a0 regardless; recipe 14 runs the parity test on AMD |
