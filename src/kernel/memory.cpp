@@ -753,6 +753,7 @@ public:
 	FlexibleMemory() {
 		EXIT_NOT_IMPLEMENTED(!Common::Thread::IsMainThread());
 		m_free.emplace(PhysicalMemory::Size(), Size());
+		m_never_mapped.emplace(PhysicalMemory::Size(), Size());
 	}
 	virtual ~FlexibleMemory() = default;
 
@@ -780,9 +781,16 @@ private:
 	void ConsumeFreeRange(std::map<uint64_t, uint64_t>::iterator range, uint64_t start,
 	                      uint64_t size);
 	void AddFreeRange(uint64_t start, uint64_t size);
+	// Zeroes the parts of backing [offset, offset + size) that were mapped before.
+	bool ZeroReusedBacking(uint64_t offset, uint64_t size);
+	void MarkMapped(uint64_t offset, uint64_t size);
 
 	std::vector<AllocatedBlock>  m_allocated;
 	std::map<uint64_t, uint64_t> m_free;
+	// Backing never mapped since start (start -> size). The backing is a SEC_COMMIT section:
+	// such pages are still the system's demand-zero pages. Zeroing them on every map made each
+	// flexible mapping resident in full at once, whether or not the game touched it.
+	std::map<uint64_t, uint64_t> m_never_mapped;
 	uint64_t                     m_allocated_total = 0;
 	Common::Mutex                m_mutex;
 };
@@ -1849,7 +1857,7 @@ bool FlexibleMemory::Map(uint64_t vaddr, size_t len, int prot, VirtualMemory::Mo
 
 	std::vector<AllocatedBlock> mapped;
 	for (const auto& block: blocks) {
-		if (!g_guest_address_space->ZeroBacking(block.backing_offset, block.map_size)) {
+		if (!ZeroReusedBacking(block.backing_offset, block.map_size)) {
 			for (auto it = mapped.rbegin(); it != mapped.rend(); ++it) {
 				EXIT_IF(!g_guest_address_space->UnmapBacking(it->map_vaddr, it->map_size));
 			}
@@ -1872,6 +1880,7 @@ bool FlexibleMemory::Map(uint64_t vaddr, size_t len, int prot, VirtualMemory::Mo
 		EXIT_IF(block.backing_offset < range->first ||
 		        block.map_size > range->first + range->second - block.backing_offset);
 		ConsumeFreeRange(range, block.backing_offset, block.map_size);
+		MarkMapped(block.backing_offset, block.map_size);
 		m_allocated.push_back(block);
 	}
 	std::sort(m_allocated.begin(), m_allocated.end(),
@@ -1879,6 +1888,51 @@ bool FlexibleMemory::Map(uint64_t vaddr, size_t len, int prot, VirtualMemory::Mo
 	m_allocated_total += len;
 
 	return true;
+}
+
+bool FlexibleMemory::ZeroReusedBacking(uint64_t offset, uint64_t size) {
+	const auto end    = offset + size;
+	auto       cursor = offset;
+	auto       it     = m_never_mapped.upper_bound(offset);
+	if (it != m_never_mapped.begin()) {
+		--it;
+	}
+	for (; it != m_never_mapped.end() && it->first < end && cursor < end; ++it) {
+		const auto clean_begin = it->first;
+		const auto clean_end   = it->first + it->second;
+		if (clean_end <= cursor) {
+			continue;
+		}
+		if (clean_begin > cursor &&
+		    !g_guest_address_space->ZeroBacking(cursor, std::min(clean_begin, end) - cursor)) {
+			return false;
+		}
+		cursor = std::max(cursor, clean_end);
+	}
+	return cursor >= end || g_guest_address_space->ZeroBacking(cursor, end - cursor);
+}
+
+void FlexibleMemory::MarkMapped(uint64_t offset, uint64_t size) {
+	const auto end = offset + size;
+	auto       it  = m_never_mapped.upper_bound(offset);
+	if (it != m_never_mapped.begin()) {
+		--it;
+	}
+	while (it != m_never_mapped.end() && it->first < end) {
+		const auto clean_begin = it->first;
+		const auto clean_end   = it->first + it->second;
+		if (clean_end <= offset) {
+			++it;
+			continue;
+		}
+		it = m_never_mapped.erase(it);
+		if (clean_begin < offset) {
+			m_never_mapped.emplace(clean_begin, offset - clean_begin);
+		}
+		if (clean_end > end) {
+			m_never_mapped.emplace(end, clean_end - end);
+		}
+	}
 }
 
 bool FlexibleMemory::Unmap(uint64_t vaddr, uint64_t size, GpuAccessMode* gpu_mode,
