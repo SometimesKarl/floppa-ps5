@@ -43,11 +43,19 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
 - Linux build breakages found and fixed: Tracy link (eb8539c), allocSampler throw (b2d1654),
   Windows-only config call (1d2544c), avplayer timer link and non-copyable Pipeline in tests (625aed4).
 
-## Status (at e2c55da)
-- Milestone A done: Linux build green (kyty_emulator links), ctest 34 passed / 16 blocked by the
-  environment (lavapipe lacks fragment barycentrics) / 0 failed. Details: CLOUD-TEST-RESULTS.md.
-- Milestone B (stability) commits: d8b8cc9+1d2544c fault report, b2f8985 tiler buffer range checks,
-  e34c2ea+f1061f8 prewarm file integrity, 04a0fdd low-memory guard zero reading + opt-in fast stop.
-- Milestone C: persisted-cache audit done (session log). Milestone D: differential SRT harness
-  d0d6aa8; W3b not started (needs a current dune profile first, recipe entry 2).
-- Next: see "Next" in CLOUD-SESSION-LOG.md.
+## Status (at edfa80d)
+- Milestone A: Linux build green; ctest 47/50 on lavapipe (1 environment-blocked, 2 pre-existing tests
+  that encode upstream behaviour, R7). GPU lane runs; sync validation clean. CLOUD-TEST-RESULTS.md.
+- Milestone B commits: fault report (d8b8cc9, 1d2544c), tiler buffer range checks (b2f8985), prewarm
+  integrity (e34c2ea, f1061f8), low-memory guard (04a0fdd), PRT tiler fixed-element builds (3b4c5a0),
+  download staging WAW barrier (df14c37), trim cooldown (512cc22).
+- Milestone C: persisted-cache audit done. Milestone D: differential SRT harness (d0d6aa8); W3b waits for
+  a current dune profile (recipe 2).
+
+## Next (in order)
+1. Review opt-in texture_quality=reduced (46e2a7d) end to end (W4.1): mip skipping in views, samplers,
+   copies, promotion; skip detiling dropped levels only if the tiler can select them.
+2. Opt-in RAM-burst attribution counters (W4.3): bytes the emulator first reads from never-touched guest
+   ranges per 10 s, to separate emulator-caused residency from the game's.
+3. DS loading (W5.2): bounded directory metadata cache behind a flag, with a temp-dir test.
+4. W3b compiled SRT program only after a dune profile of the current build.
