@@ -122,3 +122,18 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
 - EmergencyCollect / RunGarbageCollector reviewed (W4.4 old plan): scans are bounded (8192 / 4096),
   kept images are touched to the young end so they are not rescanned every tick, write-backs are
   bounded by EvictionDownloadMax * 2 per collection. No change.
+
+### W3 baseline: differential SRT tests (d0d6aa8)
+- resource_materialization_tests gains a branch plan over logged fake guest memory: untaken-arm
+  pointers never read, taken-arm read failure fails the walk, undecided branch keeps both arms, and
+  2000 seeded walks (seed 0x5eed1234) alternating decoded/interpreted evaluation on one plan with
+  memory and branch changing. Mutation-checked (no generation bump; conditions never decided): both
+  caught. -O2 and ASan+UBSan+LSan clean. This is the harness any W3b compiled program must pass.
+
+### MaterializeMemo review (pipelineCache.cpp MaterializeCached): no defect found
+- Capture covers both walkers: strict reads through CapturingStrictRead (the clean walker's
+  read_memory via CleanRuntime), direct reads and user-data reads through the thread-local observers.
+- Validation compares user data first, then re-reads strict ranges (including the ok flag) and direct
+  words with the same reader order as ReadRaw. shader_base and user-data count are part of the key.
+- A memo hit skips the walk's side effects; the only one, plan.specialization_reads, is consumed
+  inside the same walk (WrittenBuffersDisjoint), so no stale state leaks.
