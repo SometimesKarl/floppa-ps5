@@ -1652,13 +1652,23 @@ void TextureCache::InitializeImage(ImageId id) {
 		image.ClearBufferModified();
 		image.dirty_write_bytes = 0;
 		// texture_ram=trim: the upload has copied the bytes; a read-only texture's guest copy can
-		// leave RAM until something touches it again.
+		// leave RAM until something touches it again. Not when the guest rewrote it recently: its
+		// pages come straight back with the next upload (S20 still trimmed 17.7 GB in ~10 min).
+		const uint64_t frame           = RenderStats::g_guest_frames.load(std::memory_order_relaxed);
+		constexpr uint64_t TrimCooldownFrames = 64;
+		const bool     uploaded_recently = image.frame_uploaded_last != UINT64_MAX &&
+		                                   frame - image.frame_uploaded_last < TrimCooldownFrames;
+		image.frame_uploaded_last = frame;
 		if (TextureQuality::TrimRam() && cpu_written_only && !changed_rows_only &&
 		    image.info.data.size >= (1u << 20) &&
 		    !image.usage.render_target && !image.usage.depth_target && !image.usage.storage &&
 		    !image.IsGpuModified() && !image.depth_id) {
-			LibKernel::Memory::TrimGuestWorkingSet(image.info.data.address, image.info.data.size);
-			m_trimmed_bytes += image.info.data.size;
+			if (uploaded_recently) {
+				m_trim_skipped_bytes += image.info.data.size;
+			} else {
+				LibKernel::Memory::TrimGuestWorkingSet(image.info.data.address, image.info.data.size);
+				m_trimmed_bytes += image.info.data.size;
+			}
 		}
 	}
 	if (image.IsCpuDirty()) {
@@ -2992,13 +3002,14 @@ void TextureCache::RunGarbageCollector() {
 			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
 			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 " (%.0f MiB written back)"
 			            ", replaced %" PRIu64 " in 30 s; reduced quality: %" PRIu64
-			            " created, %" PRIu64 " promoted to full (total); texture RAM trimmed %.0f MiB "
-			            "(total)\n",
+			            " created, %" PRIu64 " promoted to full (total); texture RAM trimmed %.0f MiB, "
+			            "not trimmed (re-uploaded within 64 frames) %.0f MiB (total)\n",
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
 			            m_gc_freed, m_gc_kept, m_gc_emergency_freed,
 			            m_gc_preserved_bytes / 1048576.0, m_overlap_freed, m_reduced_images,
-			            m_promoted_images, m_trimmed_bytes / 1048576.0);
+			            m_promoted_images, m_trimmed_bytes / 1048576.0,
+			            m_trim_skipped_bytes / 1048576.0);
 			// How recently the cached images were used, and by what kind: what an eviction under
 			// video-memory pressure could free without touching this second's working set.
 			const std::array<double, 4> ages {1.0, 5.0, 30.0, 1e9};

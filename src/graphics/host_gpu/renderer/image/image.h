@@ -193,6 +193,9 @@ public:
 	uint64_t         tick_accessed_last = 0;
 	// Guest frame of the last lookup (RenderStats::g_guest_frames; UINT64_MAX: never).
 	uint64_t         frame_accessed_last = UINT64_MAX;
+	// Guest frame of the last upload (UINT64_MAX: never); texture_ram=trim skips images the guest
+	// rewrites often, whose pages the next upload would read back in right away.
+	uint64_t         frame_uploaded_last = UINT64_MAX;
 	// Guest frames this image was last bound as a render target in (UINT64_MAX: never): a target
 	// drawn every frame can miss one draw while its pipeline compiles; one drawn once cannot.
 	uint64_t         target_frame      = UINT64_MAX;
