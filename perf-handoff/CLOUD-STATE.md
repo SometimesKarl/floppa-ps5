@@ -53,8 +53,7 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
   a current dune profile (recipe 2).
 
 ## Next (in order)
-1. Review opt-in texture_quality=reduced (46e2a7d) end to end (W4.1): mip skipping in views, samplers,
-   copies, promotion; skip detiling dropped levels only if the tiler can select them.
+1. (done: ce63fa2, 4a61663) texture_quality=reduced review.
 2. Opt-in RAM-burst attribution counters (W4.3): bytes the emulator first reads from never-touched guest
    ranges per 10 s, to separate emulator-caused residency from the game's.
 3. DS loading (W5.2): bounded directory metadata cache behind a flag, with a temp-dir test.

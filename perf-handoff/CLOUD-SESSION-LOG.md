@@ -181,3 +181,16 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   in ~10 min). Image::frame_uploaded_last records the guest frame of each upload; trimming skips images
   uploaded within the previous 64 guest frames. Opt-in mode only; correctness unaffected either way
   (trimming never discards bytes). MEMORY_STATS prints the skipped bytes. Recipe entry 17.
+
+### W4.1 review of opt-in texture_quality=reduced (ce63fa2, 4a61663)
+- Sound: eligibility (sampled-only, >= 512x512, >= 3 levels, no metadata/depth/stencil, not GPU-dirty,
+  address not promoted before); exact_texels already covers fetch/load/store, size and LOD queries;
+  views and barriers rebase guest levels; uploads drop and rebase level-0 regions; any other lookup
+  over a reduced image promotes it (FreeImage + m_full_quality_addresses) before overlap resolution,
+  so CopyImage/CopyImageMip/Download (which EXIT on reduced images) never see one; implicit LOD, bias
+  and explicit gradients select the same guest levels on the halved view.
+- Fixed: explicit-LOD samples read one level lower at every LOD -> now exact (full image), with test.
+- Fixed (affects all modes, most likely with reduced on): UnregisterImage exited on accounting underflow
+  although the total is the driver's device-local usage when a budget exists; now saturates there.
+- Left as is (perf only, opt-in): the dropped level is still detiled into scratch (tiler infos are not
+  per level); AccountedSize counts reduced images at guest size (GC estimates between usage refreshes).
