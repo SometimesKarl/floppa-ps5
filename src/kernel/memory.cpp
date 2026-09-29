@@ -952,7 +952,7 @@ bool TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size) {
 		const bool ok = TryReadGpuCleanBackingUncached(vaddr, exact.data(), size);
 		const bool mismatch = !ok || std::memcmp(exact.data(), data, size) != 0;
 		mismatches += mismatch ? 1u : 0u;
-		if ((++reads & 0xfffffu) == 0 || (mismatch && mismatches <= 16)) {
+		if ((++reads & 0xffffu) == 0 || (mismatch && mismatches <= 16)) {
 			std::printf("clean-read verify: %llu cached reads, %llu mismatches\n",
 			            static_cast<unsigned long long>(reads),
 			            static_cast<unsigned long long>(mismatches));

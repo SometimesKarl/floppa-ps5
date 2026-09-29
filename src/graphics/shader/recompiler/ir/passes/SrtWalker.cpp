@@ -7,6 +7,7 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 
@@ -395,6 +396,24 @@ bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result
 	// The low generation bit marks an instruction that is still being evaluated.
 	if (m_context.values[index].generation == (m_context.generation | 1u)) {
 		return false;
+	}
+	// A value this walk's clean (strict-read) walker already produced holds here too: every guest
+	// word under it was read GPU-clean, and this walker would read the same bytes. Both walkers
+	// otherwise evaluated the shared descriptor and pointer chains separately.
+	// KYTY_SRT_SHARE_CLEAN=0 turns the reuse off.
+	static const bool share_clean = [] {
+		const char* value = std::getenv("KYTY_SRT_SHARE_CLEAN");
+		return value == nullptr || value[0] != '0';
+	}();
+	if (share_clean && m_fast && m_clean_evaluator != nullptr && m_clean_evaluator->m_fast) {
+		const auto& clean = m_clean_evaluator->m_context;
+		if (index < clean.values.size() && clean.values[index].generation == clean.generation) {
+			auto& memo      = m_context.values[index];
+			memo.value      = clean.values[index].value;
+			memo.generation = m_context.generation;
+			result          = memo.value;
+			return true;
+		}
 	}
 	m_context.values[index].generation = m_context.generation | 1u;
 	uint64_t out = 0;
