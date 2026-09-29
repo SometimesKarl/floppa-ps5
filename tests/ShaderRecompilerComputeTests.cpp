@@ -16096,6 +16096,8 @@ public:
 
 private:
   bool m_rasterization_supported = true;
+  bool m_barycentric_supported = true;
+  bool m_min_lod_supported = true;
   u32   m_skipped_cases          = 0;
 
   RenderContext &Renderer() {
@@ -16217,8 +16219,7 @@ private:
           features.sType = vk::StructureType::ePhysicalDeviceFeatures2;
           features.pNext = &barycentric;
           physical.getFeatures2(&features);
-          if (barycentric.fragmentShaderBarycentric != true ||
-              features.features.shaderInt64 != true ||
+          if (features.features.shaderInt64 != true ||
               features12.samplerMirrorClampToEdge != true ||
               features12.shaderOutputViewportIndex != true ||
               features12.shaderBufferInt64Atomics != true ||
@@ -16229,6 +16230,7 @@ private:
           }
           m_physical_device = physical;
           m_queue_family = i;
+          m_barycentric_supported = barycentric.fragmentShaderBarycentric == true;
           break;
         }
       }
@@ -16237,7 +16239,7 @@ private:
       }
     }
     Require("VulkanHarness", "dispatch", m_physical_device != nullptr,
-            "no Vulkan graphics+compute device with fragment barycentrics and 64-bit LDS atomics");
+            "no Vulkan graphics+compute device with 64-bit LDS atomics");
     m_physical_device.getMemoryProperties(&m_memory_properties);
 
     vk::PhysicalDeviceFeatures available_features{};
@@ -16293,8 +16295,14 @@ private:
     Require("VulkanHarness", "dispatch",
             available_features12.bufferDeviceAddress == true,
             "bufferDeviceAddress is not supported");
-    Require("VulkanHarness", "dispatch", available_min_lod.minLod == true,
-            "image view minimum LOD is not supported");
+    // Optional so that software Vulkan (Mesa lavapipe lacks both) still runs the cases that do
+    // not need them; the emulator itself requires both.
+    m_min_lod_supported = available_min_lod.minLod == true;
+    if (!m_barycentric_supported || !m_min_lod_supported) {
+      std::printf("[host]    OptionalFeatures              fragment barycentrics %s, image view "
+                  "min LOD %s: cases that use them are not valid on this device\n",
+                  m_barycentric_supported ? "yes" : "NO", m_min_lod_supported ? "yes" : "NO");
+    }
     Require("VulkanHarness", "graphics", available_features12.shaderOutputLayer == true,
             "vertex layer output is not supported");
     m_rasterization_supported = available_features.fillModeNonSolid &&
@@ -16334,7 +16342,9 @@ private:
     vk::PhysicalDeviceVulkan13Features device_features13{};
     device_features13.sType =
         vk::StructureType::ePhysicalDeviceVulkan13Features;
-    device_features13.pNext = &barycentric;
+    device_features13.pNext = m_barycentric_supported
+                                  ? static_cast<void *>(&barycentric)
+                                  : static_cast<void *>(&device_features12);
     device_features13.dynamicRendering = true;
     device_features13.synchronization2 = true;
     vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR derivatives{};
@@ -16367,7 +16377,7 @@ private:
     min_lod.pNext = m_rasterization_supported
                         ? static_cast<void *>(&provoking_vertex)
                         : static_cast<void *>(&derivatives);
-    device_info.pNext = &min_lod;
+    device_info.pNext = m_min_lod_supported ? static_cast<void *>(&min_lod) : min_lod.pNext;
     vk::PhysicalDeviceFeatures device_features{};
     device_features.shaderStorageImageWriteWithoutFormat = true;
     device_features.shaderImageGatherExtended = true;
@@ -16380,9 +16390,13 @@ private:
     std::vector<const char *> device_extensions{
         VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
         VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
-        VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
-        VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME,
-        VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME};
+        VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME};
+    if (m_barycentric_supported) {
+      device_extensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+    }
+    if (m_min_lod_supported) {
+      device_extensions.push_back(VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME);
+    }
     if (m_rasterization_supported) {
       device_extensions.push_back(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
       device_extensions.push_back(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME);
