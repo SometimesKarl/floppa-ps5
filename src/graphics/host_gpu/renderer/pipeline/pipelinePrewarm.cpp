@@ -1,4 +1,5 @@
 #include "graphics/host_gpu/renderer/pipeline/pipelinePrewarm.h"
+#include "graphics/host_gpu/renderer/pipeline/pipelinePrewarmFormat.h"
 
 #include "common/assert.h"
 #include "graphics/host_gpu/graphicContext.h"
@@ -443,7 +444,8 @@ void Open(const std::filesystem::path& path) {
 	std::lock_guard lock(state.mutex);
 	std::error_code ec;
 	std::filesystem::create_directories(path.parent_path(), ec);
-	bool valid = false;
+	bool     valid            = false;
+	uint32_t rejected_modules = 0;
 	if (std::ifstream in(path, std::ios::binary); in) {
 		uint32_t magic = 0, version = 0;
 		in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
@@ -461,13 +463,14 @@ void Open(const std::filesystem::path& path) {
 				break; // a torn tail from an interrupted session: keep what came before
 			}
 			if (record.kind == Kind::Module) {
-				if (size < sizeof(uint64_t) || (size - sizeof(uint64_t)) % 4 != 0) {
+				uint64_t              hash = 0;
+				std::vector<uint32_t> words;
+				if (!DecodeModuleRecord(record.payload, hash, words)) {
+					// Dropped and not rewritten below. Pipelines using it count as failed in this
+					// replay; RecordModule stores the module again when the title next creates it.
+					rejected_modules++;
 					continue;
 				}
-				uint64_t hash = 0;
-				std::memcpy(&hash, record.payload.data(), sizeof(hash));
-				std::vector<uint32_t> words((size - sizeof(uint64_t)) / 4);
-				std::memcpy(words.data(), record.payload.data() + sizeof(hash), words.size() * 4);
 				state.modules.emplace(hash, std::move(words));
 			} else if (record.kind == Kind::Graphics || record.kind == Kind::Compute) {
 				if (state.pipelines.insert(XXH3_64bits(record.payload.data(), size)).second) {
@@ -475,6 +478,10 @@ void Open(const std::filesystem::path& path) {
 				}
 			}
 		}
+	}
+	if (rejected_modules != 0) {
+		std::printf("Pipeline prewarm: dropped %u damaged shader module record(s) from %s\n",
+		            rejected_modules, path.string().c_str());
 	}
 	// A file from another format is replaced; a valid one is appended to (its torn tail, if any,
 	// is rewritten cleanly below).
