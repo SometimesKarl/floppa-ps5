@@ -24,6 +24,26 @@ SystemInfo GetSystemInfo() {
 	return {package->name};
 }
 
+std::optional<uint64_t> AvailablePhysicalMemoryMibIfKnown() {
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	MEMORYSTATUSEX status {};
+	status.dwLength = sizeof(status);
+	if (GlobalMemoryStatusEx(&status) == 0) {
+		return std::nullopt;
+	}
+	return status.ullAvailPhys / (1024ull * 1024);
+#elif KYTY_PLATFORM == KYTY_PLATFORM_LINUX && !defined(__APPLE__)
+	const long pages = sysconf(_SC_AVPHYS_PAGES);
+	const long size  = sysconf(_SC_PAGESIZE);
+	if (pages < 0 || size <= 0) {
+		return std::nullopt;
+	}
+	return static_cast<uint64_t>(pages) * static_cast<uint64_t>(size) / (1024ull * 1024);
+#else
+	return std::nullopt;
+#endif
+}
+
 uint64_t AvailablePhysicalMemoryMib() {
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 	MEMORYSTATUSEX status {};

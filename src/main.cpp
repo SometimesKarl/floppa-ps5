@@ -5,6 +5,7 @@
 #include "common/debug.h"
 #include "common/file.h"
 #include "common/stringUtils.h"
+#include "common/lowMemoryGuard.h"
 #include "common/systemInfo.h"
 #include "common/threads.h"
 #include "common/virtualMemory.h"
@@ -413,37 +414,39 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 // Stops the emulator before Windows runs out of RAM. A 16 GB PC holding a game's 10-11 GB plus
 // other applications froze solid when free memory ran out (ASTRO BOT, Sky Garden, 173 MB free):
 // the whole machine, not just the game, had to be reset. Below 1 GB free the window title asks
-// to close other applications; below `stop_mib` for 2 s the emulator ends with a message.
-static void StartLowMemoryGuard(uint64_t stop_mib) {
-	if (stop_mib == 0) {
+// to close other applications; below `stop_mib` for 2 s the emulator ends with a message (rules
+// and the opt-in fast stop: common/lowMemoryGuard.h).
+static void StartLowMemoryGuard(Common::LowMemoryGuard::Settings settings) {
+	if (settings.stop_mib == 0) {
 		return;
 	}
-	std::thread([stop_mib] {
-		const uint64_t     warn_mib  = std::max<uint64_t>(1024, stop_mib + 512);
-		bool               warned    = false;
-		uint32_t           low_count = 0;
+	if (settings.fast_stop) {
+		::printf("Low-memory guard: fast stop on (below %llu MB and falling fast, or below %llu MB)\n",
+		         static_cast<unsigned long long>(settings.stop_mib),
+		         static_cast<unsigned long long>(settings.stop_mib / 4));
+	}
+	std::thread([settings] {
+		Common::LowMemoryGuard guard(settings);
 		for (;;) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-			const uint64_t available = Common::AvailablePhysicalMemoryMib();
-			if (available == 0) {
-				continue;
-			}
-			if (available < warn_mib) {
-				warned = true;
-				Libs::Graphics::WindowSetStatus(fmt::format(
-				    "LOW RAM: {} MB free - close other applications", available));
-			} else if (warned && available > warn_mib + 256) {
-				warned = false;
-				Libs::Graphics::WindowSetStatus({});
-			}
-			low_count = available < stop_mib ? low_count + 1 : 0;
-			if (low_count >= 4) {
-				EXIT("System RAM is almost exhausted (%llu MB free). The emulator stopped so that "
-				     "Windows does not freeze. Close other applications (browsers, Discord, "
-				     "launchers) and start the game again; in-game saves on disk are kept. "
-				     "(emulator-settings.ini: low_memory_stop_mib=%llu, 0 disables this check)\n",
-				     static_cast<unsigned long long>(available),
-				     static_cast<unsigned long long>(stop_mib));
+			const auto available = Common::AvailablePhysicalMemoryMibIfKnown();
+			switch (guard.Sample(available)) {
+				case Common::LowMemoryGuard::Action::Warn:
+					Libs::Graphics::WindowSetStatus(fmt::format(
+					    "LOW RAM: {} MB free - close other applications", available.value_or(0)));
+					break;
+				case Common::LowMemoryGuard::Action::ClearWarning:
+					Libs::Graphics::WindowSetStatus({});
+					break;
+				case Common::LowMemoryGuard::Action::Stop:
+					EXIT("System RAM is almost exhausted (%llu MB free). The emulator stopped so that "
+					     "Windows does not freeze. Close other applications (browsers, Discord, "
+					     "launchers) and start the game again; in-game saves on disk are kept. "
+					     "(emulator-settings.ini: low_memory_stop_mib=%llu, 0 disables this check)\n",
+					     static_cast<unsigned long long>(available.value_or(0)),
+					     static_cast<unsigned long long>(settings.stop_mib));
+					break;
+				case Common::LowMemoryGuard::Action::None: break;
 			}
 		}
 	}).detach();
@@ -455,6 +458,7 @@ static void ApplyEmulatorSettings() {
 	std::string resolution = "auto";
 	std::string frame_cap  = "off";
 	std::string low_memory = "400";
+	std::string low_memory_fast_stop = "off";
 	std::string texture_quality = "full";
 	std::string texture_ram     = "keep";
 	if (std::ifstream file("emulator-settings.ini"); file) {
@@ -479,6 +483,8 @@ static void ApplyEmulatorSettings() {
 				frame_cap = trim(line.substr(equals + 1));
 			} else if (key == "low_memory_stop_mib") {
 				low_memory = trim(line.substr(equals + 1));
+			} else if (key == "low_memory_fast_stop") {
+				low_memory_fast_stop = trim(line.substr(equals + 1));
 			} else if (key == "texture_quality") {
 				texture_quality = trim(line.substr(equals + 1));
 			} else if (key == "texture_ram") {
@@ -494,6 +500,9 @@ static void ApplyEmulatorSettings() {
 	}
 	if (const char* value = std::getenv("KYTY_LOW_MEMORY_STOP_MIB"); value != nullptr) {
 		low_memory = value;
+	}
+	if (const char* value = std::getenv("KYTY_LOW_MEMORY_FAST_STOP"); value != nullptr) {
+		low_memory_fast_stop = value;
 	}
 	if (const char* value = std::getenv("KYTY_TEXTURE_QUALITY"); value != nullptr) {
 		texture_quality = value;
@@ -517,7 +526,13 @@ static void ApplyEmulatorSettings() {
 		         low_memory.c_str());
 		low_memory_mib = 400;
 	}
-	StartLowMemoryGuard(low_memory_mib);
+	const bool fast_stop = low_memory_fast_stop == "on" || low_memory_fast_stop == "1";
+	if (!fast_stop && low_memory_fast_stop != "off" && low_memory_fast_stop != "0" &&
+	    !low_memory_fast_stop.empty()) {
+		::printf("emulator-settings.ini: unknown low_memory_fast_stop '%s' (on, off)\n",
+		         low_memory_fast_stop.c_str());
+	}
+	StartLowMemoryGuard({.stop_mib = low_memory_mib, .fast_stop = fast_stop});
 	uint32_t cap = 0;
 	if (frame_cap == "30" || frame_cap == "20") {
 		cap = static_cast<uint32_t>(std::stoul(frame_cap));

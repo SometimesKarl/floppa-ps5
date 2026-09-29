@@ -474,6 +474,11 @@ add_executable(avplayer_file_tests EXCLUDE_FROM_ALL
 target_link_libraries(avplayer_file_tests common FFmpeg::ffmpeg ZArchive::zarchive)
 target_include_directories(avplayer_file_tests PRIVATE ${inc_headers})
 
+add_executable(low_memory_guard_tests EXCLUDE_FROM_ALL
+	"${KYTY_TESTS_DIR}/LowMemoryGuardTests.cpp"
+)
+target_include_directories(low_memory_guard_tests PRIVATE ${inc_headers})
+
 add_executable(pipeline_prewarm_format_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/PipelinePrewarmFormatTests.cpp"
 )
@@ -671,6 +676,7 @@ if(BUILD_TESTING)
 	add_test(NAME avplayer_file COMMAND $<TARGET_FILE:avplayer_file_tests>)
 	add_test(NAME bit_array COMMAND $<TARGET_FILE:bit_array_tests>)
 	add_test(NAME pipeline_prewarm_format COMMAND $<TARGET_FILE:pipeline_prewarm_format_tests>)
+	add_test(NAME low_memory_guard COMMAND $<TARGET_FILE:low_memory_guard_tests>)
 	add_test(NAME lru_cache COMMAND $<TARGET_FILE:lru_cache_tests>)
 	add_test(NAME mesh_dispatch COMMAND $<TARGET_FILE:mesh_dispatch_tests>)
 	add_test(NAME shader_vertex_metadata COMMAND $<TARGET_FILE:shader_vertex_metadata_tests>)
@@ -748,6 +754,7 @@ if(BUILD_TESTING)
 		avplayer_file_tests
 		bit_array_tests
 		pipeline_prewarm_format_tests
+		low_memory_guard_tests
 		lru_cache_tests
 		shader_vertex_metadata_tests
 		resource_materialization_tests
