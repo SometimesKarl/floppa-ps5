@@ -733,6 +733,10 @@ TextureBinding RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageR
 		                                 view_levels, desc.info.resources.layers);
 		desc.view_info.base_level = view_base;
 		desc.type = storage ? TextureCache::BindingType::Storage : TextureCache::BindingType::Texture;
+		// Reduced texture quality applies only to images this shader filter-samples or gathers.
+		desc.allow_reduced =
+		    !storage && !resource.exact_texels && !resource.depth_compare &&
+		    resource.resource_class == ShaderRecompiler::IR::ImageResourceClass::Sampled;
 		cached.desc              = desc;
 		cached.shader_conversion = shader_conversion;
 		cached.pixel_format      = pixel_format;

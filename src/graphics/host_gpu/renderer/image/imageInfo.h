@@ -71,6 +71,10 @@ struct ImageInfo {
 	// Color attachments normally list only their own format and its sRGB/UNORM partner as view
 	// formats, which lets drivers keep color compression. Set when other views are needed.
 	bool                         unrestricted_view_formats = false;
+	// Reduced texture quality: the host image leaves out this many top levels (0: all levels).
+	// Guest layout fields above still describe the full guest texture; host level L holds guest
+	// level L + host_mip_skip. Only for sampled-only, never GPU-written textures (TextureCache).
+	uint32_t                     host_mip_skip = 0;
 	std::array<ImageMipInfo, 16> mip_layout {};
 
 	[[nodiscard]] constexpr bool HasStencil() const noexcept { return !stencil.Empty(); }

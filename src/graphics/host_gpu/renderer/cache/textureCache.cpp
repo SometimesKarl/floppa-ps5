@@ -1,6 +1,7 @@
 #include "graphics/host_gpu/renderer/cache/textureCache.h"
 #include "graphics/host_gpu/renderer/hitchStats.h"
 #include "graphics/host_gpu/renderer/renderStats.h"
+#include "graphics/host_gpu/renderer/textureQuality.h"
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -813,6 +814,8 @@ void TextureCache::CopyImage(ImageId destination_id, ImageId source_id) {
 	RefreshCopySource(source_id);
 	auto& destination = m_slot_images[destination_id];
 	auto& source      = m_slot_images[source_id];
+	// FindImage replaces reduced-quality images before any lookup that could copy them.
+	EXIT_IF(destination.info.host_mip_skip != 0 || source.info.host_mip_skip != 0);
 	TrackImage(destination_id);
 	if (source.backing.samples != destination.backing.samples) {
 		EXIT("TextureCache: cannot issue an unequal-sample image copy\n");
@@ -854,6 +857,7 @@ void TextureCache::CopyImageMip(ImageId destination_id, ImageId source_id, uint3
 	RefreshCopySource(source_id);
 	auto& destination = m_slot_images[destination_id];
 	auto& source      = m_slot_images[source_id];
+	EXIT_IF(destination.info.host_mip_skip != 0 || source.info.host_mip_skip != 0);
 	TrackImage(destination_id);
 	if (source.IsBufferModified() || source.backing.samples != destination.backing.samples) {
 		EXIT("TextureCache: invalid mip-copy ownership or sample count\n");
@@ -1353,6 +1357,16 @@ void TextureCache::UploadImage(Image& image, Buffer& source, uint64_t source_off
 			     static_cast<uint32_t>(transfer.layout.surface.texture.block.family), info.extent.width,
 			     info.extent.height, info.extent.depth, info.pitch, info.resources.levels,
 			     info.resources.layers, info.samples);
+		}
+		if (info.host_mip_skip != 0) {
+			// Reduced texture quality: guest level L goes to host level L - host_mip_skip.
+			std::erase_if(transfer.regions, [&](const vk::BufferImageCopy& region) {
+				return region.imageSubresource.mipLevel < info.host_mip_skip;
+			});
+			for (auto& region: transfer.regions) {
+				region.imageSubresource.mipLevel -= info.host_mip_skip;
+			}
+			EXIT_IF(transfer.regions.empty());
 		}
 		// Only the rows GPU buffer writes changed: the rest of the image already holds what the
 		// guest memory under it does (see InitializeImage). Bytes the band covers but the writes
@@ -1933,6 +1947,19 @@ ImageId TextureCache::AssociateStencil(ImageId depth_id, GuestRange stencil) {
 	return association;
 }
 
+bool TextureCache::MayReduce(const ImageDesc& desc) {
+	const auto& info = desc.info;
+	// Large mipped 2D textures (and cubes / arrays) that this lookup only filter-samples, with no
+	// metadata, depth or stencil, never needed at full quality before and not written by the GPU.
+	return TextureQuality::Reduced() && desc.type == BindingType::Texture && desc.allow_reduced &&
+	       info.type == Prospero::ImageType::kColor2D && info.samples == 1 &&
+	       info.resources.levels >= 3 && info.extent.width >= 512 && info.extent.height >= 512 &&
+	       !info.HasMetadata() && !info.HasStencil() && !info.IsDepth() &&
+	       info.metadata.compression == VideoOutCompression::Uncompressed &&
+	       !m_full_quality_addresses.contains(info.data.address) &&
+	       !m_buffer_cache.HasGpuDirtyBytes(info.data.address, info.data.size);
+}
+
 ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 	auto& command = m_scheduler.Current();
 	if (command.IsInvalid()) {
@@ -1948,8 +1975,30 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 	ImageId result {};
 	{
 		std::scoped_lock lock {m_lock};
-		const auto       candidates =
-		    FindImagesInRegion(desc.info.data.address, desc.info.data.size, false);
+		auto candidates = FindImagesInRegion(desc.info.data.address, desc.info.data.size, false);
+
+		// A reduced-quality image serves only filter-sampled lookups of the same texture. Any
+		// other lookup over its memory replaces it with the full image, rebuilt from guest memory
+		// (reduced images never hold GPU-written data), and the address stays full quality.
+		bool replaced_reduced = false;
+		for (const auto id: candidates) {
+			auto* reduced = m_slot_images.try_get(id);
+			if (reduced == nullptr || !reduced->registered || reduced->info.host_mip_skip == 0 ||
+			    (desc.type == BindingType::Texture && desc.allow_reduced &&
+			     SameBacking(reduced->info, desc.info, exact_format))) {
+				continue;
+			}
+			if (reduced->binding.is_bound || reduced->binding.is_target) {
+				reduced->binding.needs_rebind = true;
+			}
+			m_full_quality_addresses.insert(reduced->info.data.address);
+			FreeImage(id);
+			m_promoted_images++;
+			replaced_reduced = true;
+		}
+		if (replaced_reduced) {
+			candidates = FindImagesInRegion(desc.info.data.address, desc.info.data.size, false);
+		}
 
 		for (const auto id: candidates) {
 			const auto& image = m_slot_images[id];
@@ -1981,6 +2030,18 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 			} else if (resolved.info.resources < desc.info.resources) {
 				FreeImage(result);
 				result = {};
+			} else if (resolved.info.host_mip_skip != 0 &&
+			           (resolved.needs_unrestricted_views ||
+			            !resolved.AllowsViewFormat(desc.info.pixel_format) ||
+			            !resolved.AllowsViewFormat(desc.view_info.format))) {
+				// Recreating copies the image: replace a reduced one with the full image instead.
+				if (resolved.binding.is_bound || resolved.binding.is_target) {
+					resolved.binding.needs_rebind = true;
+				}
+				m_full_quality_addresses.insert(resolved.info.data.address);
+				FreeImage(result);
+				m_promoted_images++;
+				result = {};
 			} else if (resolved.needs_unrestricted_views ||
 			           !resolved.AllowsViewFormat(desc.info.pixel_format) ||
 			           !resolved.AllowsViewFormat(desc.view_info.format)) {
@@ -2006,7 +2067,12 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_format) {
 					m_overlap_freed++;
 				}
 			}
-			result         = InsertImage(desc.info);
+			auto info = desc.info;
+			if (MayReduce(desc)) {
+				info.host_mip_skip = 1;
+				m_reduced_images++;
+			}
+			result         = InsertImage(info);
 			auto& inserted = m_slot_images[result];
 			if (m_buffer_cache.HasGpuDirtyBytes(inserted.info.data.address,
 			                                    inserted.info.data.size)) {
@@ -2891,11 +2957,13 @@ void TextureCache::RunGarbageCollector() {
 			std::printf("TextureCache: %" PRIu64 " images %.0f MiB (GPU-written tiled %" PRIu64
 			            " %.0f MiB); device usage %.0f MiB, critical %.0f MiB; freed %" PRIu64
 			            ", kept %" PRIu64 ", emergency-freed %" PRIu64 " (%.0f MiB written back)"
-			            ", replaced %" PRIu64 " in 30 s\n",
+			            ", replaced %" PRIu64 " in 30 s; reduced quality: %" PRIu64
+			            " created, %" PRIu64 " promoted to full (total)\n",
 			            images, bytes / 1048576.0, tiled_gpu, tiled_gpu_bytes / 1048576.0,
 			            m_total_used_memory / 1048576.0, m_critical_gc_memory / 1048576.0,
 			            m_gc_freed, m_gc_kept, m_gc_emergency_freed,
-			            m_gc_preserved_bytes / 1048576.0, m_overlap_freed);
+			            m_gc_preserved_bytes / 1048576.0, m_overlap_freed, m_reduced_images,
+			            m_promoted_images);
 			// How recently the cached images were used, and by what kind: what an eviction under
 			// video-memory pressure could free without touching this second's working set.
 			const std::array<double, 4> ages {1.0, 5.0, 30.0, 1e9};

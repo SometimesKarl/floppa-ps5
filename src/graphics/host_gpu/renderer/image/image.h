@@ -59,6 +59,10 @@ public:
 		return info.pixel_format == vk::Format::eUndefined || backing.image != nullptr;
 	}
 	[[nodiscard]] vk::ImageView FindView(const ImageViewInfo& view_info);
+	// Levels of the host image (fewer than the guest's with reduced texture quality).
+	[[nodiscard]] uint32_t HostLevels() const noexcept {
+		return info.resources.levels - info.host_mip_skip;
+	}
 	// Whether a view may use this format. Images without a view-format list allow every
 	// compatible format.
 	[[nodiscard]] bool AllowsViewFormat(vk::Format format) const noexcept;

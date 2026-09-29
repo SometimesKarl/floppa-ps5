@@ -180,19 +180,28 @@ void Image::AppendBarriers(Barriers& barriers, vk::ImageLayout destination_layou
 		range->base_layer  = 0;
 		range->layer_count = 1;
 	}
+	const uint32_t host_levels = HostLevels();
+	if (range && info.host_mip_skip != 0) {
+		// Ranges name guest levels; the host image starts at guest level host_mip_skip.
+		const auto skip   = info.host_mip_skip;
+		const auto first  = range->base_level > skip ? range->base_level - skip : 0u;
+		const auto last   = std::max(range->base_level + range->level_count, skip + 1) - skip;
+		range->base_level  = std::min(first, host_levels - 1);
+		range->level_count = std::max(std::min(last, host_levels) - range->base_level, 1u);
+	}
 
 	const bool partial =
-	    range && (range->base_level != 0 || range->level_count != info.resources.levels ||
+	    range && (range->base_level != 0 || range->level_count != host_levels ||
 	              range->base_layer != 0 || range->layer_count != info.resources.layers);
 	const bool has_subresource_states = !subresource_states.empty();
 
 	if (partial || has_subresource_states) {
 		if (!has_subresource_states) {
-			subresource_states.resize(info.resources.levels * info.resources.layers, state);
+			subresource_states.resize(host_levels * info.resources.layers, state);
 		}
 
 		const uint32_t base_level  = partial ? range->base_level : 0;
-		const uint32_t level_count = partial ? range->level_count : info.resources.levels;
+		const uint32_t level_count = partial ? range->level_count : host_levels;
 		const uint32_t base_layer  = partial ? range->base_layer : 0;
 		const uint32_t layer_count = partial ? range->layer_count : info.resources.layers;
 		// Subresources a read needs no barrier for keep their state, which records every stage
@@ -319,11 +328,13 @@ static void CheckCopyRegions(const ImageInfo& info, std::span<const vk::BufferIm
 	for (const auto& copy: copies) {
 		const auto& sub   = copy.imageSubresource;
 		const auto  level = sub.mipLevel;
-		const auto  w     = align(std::max(info.extent.width >> level, 1u));
-		const auto  h     = align(std::max(info.extent.height >> level, 1u));
-		const auto  d     = std::max(info.extent.depth >> level, 1u);
+		// Copies name host levels.
+		const auto  guest = level + info.host_mip_skip;
+		const auto  w     = align(std::max(info.extent.width >> guest, 1u));
+		const auto  h     = align(std::max(info.extent.height >> guest, 1u));
+		const auto  d     = std::max(info.extent.depth >> guest, 1u);
 		const bool  inside =
-		    level < info.resources.levels && sub.baseArrayLayer + sub.layerCount <= layer_count &&
+		    guest < info.resources.levels && sub.baseArrayLayer + sub.layerCount <= layer_count &&
 		    copy.imageOffset.x >= 0 && copy.imageOffset.y >= 0 && copy.imageOffset.z >= 0 &&
 		    static_cast<uint64_t>(copy.imageOffset.x) + copy.imageExtent.width <= w &&
 		    static_cast<uint64_t>(copy.imageOffset.y) + copy.imageExtent.height <= h &&
@@ -388,6 +399,8 @@ void Image::Upload(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffe
 void Image::Download(std::span<const vk::BufferImageCopy> copies, vk::Buffer buffer,
                      uint64_t offset, uint64_t size) {
 	EXIT_IF(copies.empty() || buffer == nullptr || size == 0);
+	// Reduced images are never GPU-written: nothing of theirs is ever read back.
+	EXIT_IF(info.host_mip_skip != 0);
 	CheckCopyRegions(info, copies, offset, size, "Download");
 	m_scheduler.EndRendering();
 	vk::BufferMemoryBarrier2 buffer_barrier {};
@@ -815,7 +828,12 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	create.flags         = ImageCreateFlags(graphics, info);
 	create.imageType     = HostImageType(info.type);
 	create.extent        = info.extent;
-	create.mipLevels     = info.resources.levels;
+	create.mipLevels     = HostLevels();
+	if (info.host_mip_skip != 0) {
+		EXIT_IF(info.host_mip_skip >= info.resources.levels || info.IsVolume());
+		create.extent.width  = std::max(info.extent.width >> info.host_mip_skip, 1u);
+		create.extent.height = std::max(info.extent.height >> info.host_mip_skip, 1u);
+	}
 	create.arrayLayers   = info.IsVolume() ? 1u : info.resources.layers;
 	create.format        = info.pixel_format;
 	create.tiling        = vk::ImageTiling::eOptimal;

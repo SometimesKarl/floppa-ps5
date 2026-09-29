@@ -10,6 +10,7 @@
 #include "common/virtualMemory.h"
 #include "emulator.h"
 #include "graphics/host_gpu/renderer/resolutionControl.h"
+#include "graphics/host_gpu/renderer/textureQuality.h"
 #include "graphics/presentation/videoOut.h"
 #include "graphics/presentation/window.h"
 #include "kytyGitVersion.h"
@@ -454,6 +455,7 @@ static void ApplyEmulatorSettings() {
 	std::string resolution = "auto";
 	std::string frame_cap  = "off";
 	std::string low_memory = "400";
+	std::string texture_quality = "full";
 	if (std::ifstream file("emulator-settings.ini"); file) {
 		std::string line;
 		while (std::getline(file, line)) {
@@ -476,6 +478,8 @@ static void ApplyEmulatorSettings() {
 				frame_cap = trim(line.substr(equals + 1));
 			} else if (key == "low_memory_stop_mib") {
 				low_memory = trim(line.substr(equals + 1));
+			} else if (key == "texture_quality") {
+				texture_quality = trim(line.substr(equals + 1));
 			}
 		}
 	}
@@ -487,6 +491,16 @@ static void ApplyEmulatorSettings() {
 	}
 	if (const char* value = std::getenv("KYTY_LOW_MEMORY_STOP_MIB"); value != nullptr) {
 		low_memory = value;
+	}
+	if (const char* value = std::getenv("KYTY_TEXTURE_QUALITY"); value != nullptr) {
+		texture_quality = value;
+	}
+	if (texture_quality == "reduced") {
+		Libs::Graphics::TextureQuality::SetReduced(true);
+		::printf("Texture quality: reduced (large sampled textures without their top mip level)\n");
+	} else if (texture_quality != "full" && !texture_quality.empty()) {
+		::printf("emulator-settings.ini: unknown texture_quality '%s' (full, reduced)\n",
+		         texture_quality.c_str());
 	}
 	uint64_t low_memory_mib = 400;
 	if (const auto [end, error] = std::from_chars(low_memory.data(), low_memory.data() + low_memory.size(),

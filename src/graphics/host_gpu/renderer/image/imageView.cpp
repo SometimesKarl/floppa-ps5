@@ -325,6 +325,15 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 		normalized.aspect = vk::ImageAspectFlagBits::eStencil;
 	}
 	normalized.usage = is_storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlags {};
+	if (info.host_mip_skip != 0 && normalized.level_count != 0) {
+		// Views name guest levels; the host image starts at guest level host_mip_skip (a view of
+		// the dropped top level samples the next one).
+		const auto skip   = info.host_mip_skip;
+		const auto first  = normalized.base_level > skip ? normalized.base_level - skip : 0u;
+		const auto last   = std::max(normalized.base_level + normalized.level_count, skip + 1) - skip;
+		normalized.base_level  = std::min(first, image.mip_levels - 1);
+		normalized.level_count = std::max(std::min(last, image.mip_levels) - normalized.base_level, 1u);
+	}
 	for (const auto& cached: views) {
 		if (cached.info == normalized) {
 			return cached.view;

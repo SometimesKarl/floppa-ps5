@@ -41,6 +41,9 @@ public:
 		ImageInfo     info;
 		ImageViewInfo view_info;
 		BindingType   type = BindingType::Texture;
+		// The shader only filter-samples or gathers the image: it may use a reduced-quality host
+		// image (TextureQuality). Every other lookup gets, or promotes to, the full image.
+		bool          allow_reduced = false;
 	};
 
 	TextureCache(GraphicContext& graphics, CommandScheduler& scheduler, PageManager& page_manager,
@@ -266,6 +269,12 @@ private:
 	uint64_t m_gc_preserved_bytes = 0;
 	// KYTY_UPLOAD_LOG: bytes partial uploads (UploadImage changed_rows_only) did not transfer.
 	uint64_t m_partial_upload_bytes_saved = 0;
+	// Reduced texture quality (TextureQuality): whether a new image for `desc` may leave out its
+	// top level, and the guest addresses a lookup needed at full quality (never reduced again).
+	[[nodiscard]] bool MayReduce(const ImageDesc& desc);
+	std::unordered_set<uint64_t> m_full_quality_addresses;
+	uint64_t                     m_reduced_images  = 0;
+	uint64_t                     m_promoted_images = 0;
 	// KYTY_UPLOAD_LOG: why buffer-written images were uploaded whole (PartialMiss order).
 	std::array<uint64_t, 8> m_partial_misses {};
 	uint64_t m_overlap_freed = 0;
