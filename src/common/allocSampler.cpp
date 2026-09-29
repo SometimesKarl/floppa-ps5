@@ -148,7 +148,11 @@ void* operator new(size_t size) {
 	}
 	void* p = std::malloc(size != 0 ? size : 1);
 	if (p == nullptr) {
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
 		throw std::bad_alloc();
+#else
+		std::abort(); // Linux builds run without exceptions
+#endif
 	}
 	return p;
 }
