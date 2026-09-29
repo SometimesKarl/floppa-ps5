@@ -1,9 +1,15 @@
 #include "graphics/shader/recompiler/ir/ShaderIR.h"
 #include "graphics/shader/recompiler/ir/passes/ResourceMaterialization.h"
 
+#include "graphics/shader/recompiler/ir/passes/SrtWalker.h"
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <memory>
+#include <random>
+#include <vector>
 
 namespace {
 
@@ -140,6 +146,210 @@ Libs::Graphics::ShaderRecompiler::IR::ResourcePlan MixedSamplerPlan() {
   return ExtractResourcePlan(program);
 }
 
+// Synthetic guest memory read by both walkers (strict and observed). Every address read is logged
+// so a test can prove that a pointer under an untaken branch was never dereferenced: in the
+// emulator an unreached pointer chain can point at unmapped memory and fault.
+struct FakeMemory {
+  std::map<uint64_t, uint32_t> words;
+  std::vector<uint64_t> reads;
+};
+
+bool FakeRead(void *userdata, uint64_t address, std::span<uint32_t> values) {
+  auto *memory = static_cast<FakeMemory *>(userdata);
+  for (size_t i = 0; i < values.size(); i++) {
+    const uint64_t word_address = address + i * sizeof(uint32_t);
+    memory->reads.push_back(word_address);
+    const auto found = memory->words.find(word_address);
+    if (found == memory->words.end()) {
+      return false;
+    }
+    values[i] = found->second;
+  }
+  return true;
+}
+
+Libs::Graphics::ShaderRecompiler::IR::Inst &
+AppendLoad(Libs::Graphics::ShaderRecompiler::IR::Block &block, uint64_t address) {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  auto &handle = block.AppendNewInst(
+      ValueOpcode::GetAddressResource,
+      {Value(static_cast<uint32_t>(address)),
+       Value(static_cast<uint32_t>(address >> 32u))});
+  auto &raw = block.AppendNewInst(
+      ValueOpcode::LoadAddressU32,
+      {Value(&handle), Value(0u), Value(0u), Value(true)});
+  raw.SetFlags(MemoryFlags{.index = 0, .pc = 0x80});
+  return raw;
+}
+
+// Two buffers whose first descriptor word is loaded from guest memory, each used only in one
+// arm of a branch on a guest flag word: block 0 branches on flag != 0 to block 1 (buffer 0) or
+// block 2 (buffer 1). `conditions` owns the condition instructions and must outlive the plan.
+Libs::Graphics::ShaderRecompiler::IR::ResourcePlan
+BranchPlan(uint64_t flag_address, uint64_t taken_address,
+           uint64_t untaken_address,
+           Libs::Graphics::ShaderRecompiler::IR::Block &conditions) {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  Program program;
+  program.stage = Libs::Graphics::ShaderType::Compute;
+  program.srt_plan_complete = true;
+  program.resource_tracking_complete = true;
+  auto &value_block = AddValueBlock(program);
+  MemoryInfo memory;
+  memory.kind = ResourceKind::ScalarAddress;
+  memory.planning_only = true;
+  program.memory_info.push_back(memory);
+  for (const auto address : {taken_address, untaken_address}) {
+    DescriptorSource source;
+    source.dwords[0] = Value(&AppendLoad(value_block, address));
+    for (uint32_t i = 1; i < 4; i++) {
+      source.dwords[i] = Value(0u);
+    }
+    source.dword_count = 4;
+    program.descriptor_sources.push_back(source);
+  }
+  program.info.buffers.push_back({.source = 0});
+  program.info.buffers.push_back({.source = 1});
+  auto plan = ExtractResourcePlan(program);
+
+  auto &flag = AppendLoad(conditions, flag_address);
+  auto &condition = conditions.AppendNewInst(ValueOpcode::INotEqual32,
+                                             {Value(&flag), Value(0u)});
+  plan.control_flow.clear();
+  plan.control_flow.push_back({.condition = Value(&condition), .successors = {1, 2}});
+  plan.control_flow.push_back({.sources = {0}});
+  plan.control_flow.push_back({.sources = {1}});
+  return plan;
+}
+
+struct WalkResult {
+  bool ok = false;
+  Libs::Graphics::ShaderRecompiler::IR::ResourceSnapshot snapshot;
+  Libs::Graphics::ShaderRecompiler::IR::ResourceSpecialization specialization;
+  std::vector<uint64_t> reads;
+};
+
+WalkResult Walk(const Libs::Graphics::ShaderRecompiler::IR::ResourcePlan &plan,
+                FakeMemory &memory, bool fast) {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  SetSrtFastEvaluation(fast);
+  memory.reads.clear();
+  const SrtRuntime runtime{.read_memory = FakeRead,
+                           .userdata = &memory,
+                           .read_specialization_memory = FakeRead};
+  WalkResult result;
+  result.ok = MaterializeResources(plan, runtime, result.snapshot,
+                                   result.specialization);
+  result.reads = memory.reads;
+  SetSrtFastEvaluation(true);
+  return result;
+}
+
+bool SameResult(const WalkResult &a, const WalkResult &b) {
+  return a.ok == b.ok &&
+         (!a.ok || (a.snapshot.buffers == b.snapshot.buffers &&
+                    a.snapshot.images == b.snapshot.images &&
+                    a.snapshot.samplers == b.snapshot.samplers &&
+                    a.snapshot.flattened_srt == b.snapshot.flattened_srt &&
+                    a.specialization == b.specialization));
+}
+
+bool ReadAddress(const WalkResult &result, uint64_t address) {
+  return std::ranges::find(result.reads, address) != result.reads.end();
+}
+
+constexpr uint64_t FlagAddress = 0x100000;
+constexpr uint64_t TakenAddress = 0x200000;
+constexpr uint64_t UntakenAddress = 0x300000;
+
+void TestUntakenBranchPointerIsNotRead() {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  Block conditions;
+  const auto plan =
+      BranchPlan(FlagAddress, TakenAddress, UntakenAddress, conditions);
+  FakeMemory memory;
+  memory.words[FlagAddress] = 1;
+  memory.words[TakenAddress] = 0xaaaa0001u;
+  // UntakenAddress stays unmapped: reading it fails the walk.
+  for (const bool fast : {true, false}) {
+    const auto result = Walk(plan, memory, fast);
+    Check(result.ok, "walk with an unmapped pointer on the untaken branch failed");
+    Check(!ReadAddress(result, UntakenAddress),
+          "walk read a pointer on the untaken branch");
+    Check(result.snapshot.buffers.size() == 2 &&
+              result.snapshot.buffers[0].dwords[0] == 0xaaaa0001u,
+          "taken-branch descriptor has the wrong value");
+    Check(result.snapshot.buffers[1] ==
+              DescriptorValue{.dwords = {}, .dword_count = 4},
+          "untaken-branch descriptor is not the inactive (zero) value");
+  }
+  Check(SameResult(Walk(plan, memory, true), Walk(plan, memory, false)),
+        "decoded and interpreted walks differ on the branch plan");
+}
+
+void TestTakenBranchReadFailureFailsTheWalk() {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  Block conditions;
+  const auto plan =
+      BranchPlan(FlagAddress, TakenAddress, UntakenAddress, conditions);
+  FakeMemory memory;
+  memory.words[FlagAddress] = 0; // takes the arm whose pointer is unmapped
+  memory.words[TakenAddress] = 0xaaaa0001u;
+  for (const bool fast : {true, false}) {
+    const auto result = Walk(plan, memory, fast);
+    Check(!result.ok, "a failed read on the taken branch did not fail the walk");
+    Check(!ReadAddress(result, TakenAddress),
+          "walk read the pointer of the branch it did not take");
+  }
+  // An unreadable condition cannot decide the branch: both arms are active.
+  memory.words.erase(FlagAddress);
+  memory.words[UntakenAddress] = 0xbbbb0002u;
+  for (const bool fast : {true, false}) {
+    const auto result = Walk(plan, memory, fast);
+    Check(result.ok &&
+              result.snapshot.buffers[0].dwords[0] == 0xaaaa0001u &&
+              result.snapshot.buffers[1].dwords[0] == 0xbbbb0002u,
+          "an undecided branch did not keep both arms active");
+  }
+}
+
+// The decoded-node evaluator memoizes per walk (generations) and keeps decoded roots per plan.
+// Alternating it with the interpreter on one plan while guest memory and the branch change
+// between walks must never return a value from an earlier walk (KYTY_SRT_VERIFY, fixed input).
+void TestRepeatedWalksFollowMemory() {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  Block conditions;
+  const auto plan =
+      BranchPlan(FlagAddress, TakenAddress, UntakenAddress, conditions);
+  FakeMemory memory;
+  std::mt19937 random(0x5eed1234u);
+  constexpr int Walks = 2000;
+  for (int walk = 0; walk < Walks; walk++) {
+    const uint32_t flag = random() & 1u;
+    const uint32_t taken = static_cast<uint32_t>(random());
+    const uint32_t untaken = static_cast<uint32_t>(random());
+    memory.words[FlagAddress] = flag;
+    memory.words[TakenAddress] = taken;
+    memory.words[UntakenAddress] = untaken;
+    const auto fast = Walk(plan, memory, true);
+    const auto interpreted = Walk(plan, memory, false);
+    if (!fast.ok || !SameResult(fast, interpreted)) {
+      std::fprintf(stderr, "ResourceMaterializationTests: walk %d (seed 0x5eed1234)\n",
+                   walk);
+      Check(false, "decoded and interpreted walks differ after memory changed");
+    }
+    const auto expected0 = flag != 0 ? taken : 0u;
+    const auto expected1 = flag != 0 ? 0u : untaken;
+    if (fast.snapshot.buffers[0].dwords[0] != expected0 ||
+        fast.snapshot.buffers[1].dwords[0] != expected1) {
+      std::fprintf(stderr, "ResourceMaterializationTests: walk %d (seed 0x5eed1234)\n",
+                   walk);
+      Check(false, "walk returned a stale or wrong descriptor word");
+    }
+  }
+  std::printf("ResourceMaterializationTests: %d differential walks matched\n", Walks);
+}
+
 void TestMappedSrtUsesDirectReaderByDefault() {
   using namespace Libs::Graphics::ShaderRecompiler::IR;
   const uint32_t dword = 0x12345678;
@@ -264,6 +474,9 @@ int main() {
   TestUnbasedFlatCacheHitMaterializes();
   TestFailedMaterializationRejectsStage();
   TestMixedSamplerDuplicatesTheCorrectSnapshot();
+  TestUntakenBranchPointerIsNotRead();
+  TestTakenBranchReadFailureFailsTheWalk();
+  TestRepeatedWalksFollowMemory();
   std::puts("ResourceMaterializationTests: all cases passed");
   return 0;
 }
