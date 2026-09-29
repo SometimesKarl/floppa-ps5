@@ -77,3 +77,31 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
 - Common clear path (clearColorImage in TRANSFER_DST) still needs a layout barrier before the next
   draw. Folding such clears into the next pass's loadOp would remove it but reorders commands: design
   candidate, not started.
+
+### Linux build fixes (all pushed)
+- eb8539c Tracy link for standalone resource tests; b2d1654 allocSampler abort when exceptions are off;
+  1d2544c my d8b8cc9 called the Windows-only Config::RedZoneProtectionEnabled unguarded (fixed);
+  625aed4 avplayer_file_tests links loader/timer.cpp, ShaderRecompilerComputeTests fills caller-owned
+  PipelineCache::Pipeline (non-copyable since e9856e3 added std::atomic<bool> ready).
+
+### Milestone C audit: persisted shader/pipeline data
+- Driver cache (`<title>.bin`): sound. Signature (vendor, device, driver version, pipelineCacheUUID) +
+  XXH3 of payload + 512 MiB bound; driver rejection falls back to empty; temp file + rename.
+- Precompile records (`<title>.shaders`): bounds-checked reader, torn tail truncated before append,
+  replay skips records whose static key no longer matches. Gaps (not changed): no per-record checksum
+  (a flipped bit inside GCN code would be translated; the recompiler EXITs on what it cannot decode);
+  whole file read into memory without a size bound. A checksum needs a format version bump, which
+  discards every owner's recorded set once; not worth it without evidence of corruption.
+- Prewarm records (`<title>.pipelines`): module hash was never verified on load, so a damaged file fed
+  arbitrary SPIR-V to the driver at boot. Fixed in e34c2ea (DecodeModuleRecord + 105-check unit test,
+  ASan/UBSan clean). Pipeline records are identified by their XXH3 but not checked; ParseGraphics/
+  ParseCompute are bounds-checked (Reader::Ok requires the whole payload consumed).
+- Worker counts (CompileWorkerCount, PrewarmThreadCount): clamped, hardware_concurrency()==0 safe.
+
+### Milestone D (W3a) review
+- Walk scratch is already per plan and reused (active_sources, visited_blocks, pending_blocks,
+  descriptor/flat/condition roots); no per-walk allocation left in FindActiveSources/RefreshFlatBuffer
+  after the first walk of a plan. References into plan vectors held across evaluation
+  (`roots[source]`, `condition_roots[index]`) are safe: those vectors are resized once, to full size.
+- Two SrtWalker objects per materialization are cheap (references + generation bump).
+- Next for D: W3b compiled program needs a differential harness first (ResourceMaterializationTests).
