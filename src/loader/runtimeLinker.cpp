@@ -776,6 +776,20 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 			}
 			std::printf("\n");
 		}
+		// Guest (SysV) code keeps live locals in the 128 bytes below rsp. Windows dispatches a
+		// host exception on the faulting thread's own stack and overwrites that area, which the
+		// guest cannot know about (DS S20: a null pointer reloaded from [rsp-0x10]). Print it
+		// with the protection setting so a later report shows whether it was clobbered.
+		std::printf("red zone protection: %s\n",
+		            Config::RedZoneProtectionEnabled() ? "enabled" : "disabled");
+		if (info->rsp >= 128 && IsReadableRange(info->rsp - 128, 128)) {
+			const auto* red_zone = reinterpret_cast<const uint64_t*>(info->rsp - 128);
+			std::printf("below rsp (rsp-128 .. rsp):");
+			for (int i = 0; i < 16; i++) {
+				std::printf("%s %016" PRIx64, (i % 4 == 0) ? "\n " : "", red_zone[i]);
+			}
+			std::printf("\n");
+		}
 #if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
 		PrintHostBacktrace(info->native_context);
 #endif
