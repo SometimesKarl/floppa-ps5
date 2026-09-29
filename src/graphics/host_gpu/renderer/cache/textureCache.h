@@ -127,12 +127,12 @@ private:
 	};
 
 	using ImageIds       = InlinePageOwnerList<ImageId, 16>;
-	using ImagePageTable = MultiLevelPageTable<ImageIds, 20, 40, 10>;
+	using ImagePageTable = MultiLevelPageTable<ImageIds, 20, 44, 14>;
 	// Query results: a texture lookup in ASTRO BOT often overlaps more than 16 images, and the
 	// page-owner capacity made ~10k lookups a second spill to the heap.
 	using ImageQueryIds = InlinePageOwnerList<ImageId, 128>;
 
-	// Callers have validated the nonempty 40-bit range with TryGetPageRange.
+	// Callers have validated the nonempty 44-bit range with TryGetPageRange.
 	template <typename Func>
 	static void ForEachPage(uint64_t address, size_t size, Func&& func) {
 		using FuncReturn = typename std::invoke_result<Func, uint64_t>::type;
@@ -188,7 +188,6 @@ private:
 	[[nodiscard]] static bool SameBacking(const ImageInfo& cached, const ImageInfo& requested,
 	                                      bool exact_format);
 	[[nodiscard]] static BindingType UploadBinding(const Image& image);
-	[[nodiscard]] bool               SafeToDownload(const Image& image);
 
 	// Caller holds m_lock; it also serializes the per-image query epoch.
 	[[nodiscard]] ImageQueryIds FindImagesInRegion(uint64_t address, uint64_t size,

@@ -41,7 +41,6 @@
 #include <span>
 #include <spirv-tools/libspirv.hpp>
 #include <string_view>
-#include <tuple>
 #include <utility>
 #include <vector>
 #include <xxhash.h>
@@ -147,34 +146,37 @@ void DumpShaderSpirv(const char* stage_name, uint64_t shader_hash,
 	file.Write(spirv.data(), spirv.size() * sizeof(uint32_t));
 }
 
+// Short stage names used in shader dump file names.
+const char* PipelineStageName(ShaderType stage) {
+	switch (stage) {
+		case ShaderType::Vertex: return "vs";
+		case ShaderType::Mesh: return "ms";
+		case ShaderType::Local: return "ls";
+		case ShaderType::TessellationControl: return "hs";
+		case ShaderType::TessellationEvaluation: return "ds";
+		case ShaderType::Pixel: return "ps";
+		case ShaderType::Compute: return "cs";
+		default: EXIT("invalid pipeline shader stage\n");
+	}
+}
+
 void DumpShaderOriginal(const char* stage_name, uint64_t shader_hash,
-                        std::span<const uint32_t> code, const std::string& decoded_dump) {
+                        std::span<const uint32_t> code) {
 	if (!Config::GraphicsDebugDumpEnabled()) {
 		return;
 	}
 	EXIT_IF(code.empty());
 	static std::atomic_int id = 0;
-	const auto base = Config::GetShaderLogFolder() / "original" /
-	                  fmt::format("{:04d}_new_shader_{}_{:016x}", id++, stage_name, shader_hash);
-	Common::File::CreateDirectories(base.parent_path());
-	for (const auto& [suffix, data, size]: {
-	         std::tuple {".bin", static_cast<const void*>(code.data()), code.size_bytes()},
-	         std::tuple {".rdna2", static_cast<const void*>(decoded_dump.data()),
-	                     decoded_dump.size()},
-	     }) {
-		if (size == 0) {
-			continue;
-		}
-		auto path = base;
-		path += suffix;
-		Common::File file(path);
-		if (file.IsInvalid()) {
-			const auto path_text = Common::PathToString(path);
-			LOGF_COLOR(Log::Color::BrightRed, "Can't create file: %s\n", path_text.c_str());
-		} else {
-			file.Write(data, size);
-		}
+	const auto path = Config::GetShaderLogFolder() / "original" /
+	                  fmt::format("{:04d}_new_shader_{}_{:016x}.bin", id++, stage_name, shader_hash);
+	Common::File::CreateDirectories(path.parent_path());
+	Common::File file(path);
+	if (file.IsInvalid()) {
+		const auto path_text = Common::PathToString(path);
+		LOGF_COLOR(Log::Color::BrightRed, "Can't create file: %s\n", path_text.c_str());
+		return;
 	}
+	file.Write(code.data(), code.size_bytes());
 }
 
 bool ValidateShaderSpirv(const char* label, uint64_t shader_hash,
@@ -533,28 +535,16 @@ struct PipelineCache::ProgramCache {
 
 	static constexpr std::size_t MaxStaticKeyWords = 13 + ShaderVertexInputInfo::RES_MAX * 13;
 
-	Permutation CompilePermutation(const ShaderParams&                          params,
+	Permutation CompilePermutation(const char*                                  stage_name,
 	                               const ShaderRecompiler::CompileOptions&      options,
 	                               ShaderRecompiler::TranslateResult            translated,
 	                               ShaderRecompiler::IR::ResourceSpecialization specialization,
 	                               uint32_t push_data_start_dword) {
 		HitchStats::Scope hitch(HitchStats::Category::ShaderCompile);
-		const char* stage_name = nullptr;
-		switch (options.stage) {
-			case ShaderType::Vertex: stage_name = "vs"; break;
-			case ShaderType::Mesh: stage_name = "ms"; break;
-			case ShaderType::Local: stage_name = "ls"; break;
-			case ShaderType::TessellationControl: stage_name = "hs"; break;
-			case ShaderType::TessellationEvaluation: stage_name = "ds"; break;
-			case ShaderType::Pixel: stage_name = "ps"; break;
-			case ShaderType::Compute: stage_name = "cs"; break;
-			default: EXIT("invalid pipeline shader stage\n");
-		}
 		const auto compile_begin = Common::Timer::QueryPerformanceCounter();
 		auto result = ShaderRecompiler::CompileProgram(std::move(translated), options,
 		                                               specialization, push_data_start_dword);
 		const auto compile_end = Common::Timer::QueryPerformanceCounter();
-		DumpShaderOriginal(stage_name, options.shader_hash, params.code, result.decoded_dump);
 		if (Config::ShaderValidationEnabled() && background) {
 			// Validation is a diagnostic (~14 ms per shader, up to 0.3 s): run it on a compile
 			// worker so a new shader does not stall the frame; a failure still ends the run.
@@ -656,14 +646,15 @@ struct PipelineCache::ProgramCache {
 			stage_input.compute = &input_info;
 		}
 		const char* label = nullptr;
+		const char* stage_name = nullptr;
 		switch (stage) {
-			case ShaderType::Vertex: label = "ShaderRecompiler VS"; break;
-			case ShaderType::Mesh: label = "ShaderRecompiler MS"; break;
-			case ShaderType::Local: label = "ShaderRecompiler LS"; break;
-			case ShaderType::TessellationControl: label = "ShaderRecompiler HS"; break;
-			case ShaderType::TessellationEvaluation: label = "ShaderRecompiler DS"; break;
-			case ShaderType::Pixel: label = "ShaderRecompiler PS"; break;
-			case ShaderType::Compute: label = "ShaderRecompiler CS"; break;
+			case ShaderType::Vertex: label = "ShaderRecompiler VS"; stage_name = "vs"; break;
+			case ShaderType::Mesh: label = "ShaderRecompiler MS"; stage_name = "ms"; break;
+			case ShaderType::Local: label = "ShaderRecompiler LS"; stage_name = "ls"; break;
+			case ShaderType::TessellationControl: label = "ShaderRecompiler HS"; stage_name = "hs"; break;
+			case ShaderType::TessellationEvaluation: label = "ShaderRecompiler DS"; stage_name = "ds"; break;
+			case ShaderType::Pixel: label = "ShaderRecompiler PS"; stage_name = "ps"; break;
+			case ShaderType::Compute: label = "ShaderRecompiler CS"; stage_name = "cs"; break;
 			default: EXIT("invalid pipeline shader stage\n");
 		}
 		ShaderRecompiler::CompileOptions options;
@@ -686,6 +677,7 @@ struct PipelineCache::ProgramCache {
 		} else {
 			options.wave_size = input_info.wave_size;
 		}
+		DumpShaderOriginal(stage_name, options.shader_hash, params.code);
 		const auto translate_begin = Common::Timer::QueryPerformanceCounter();
 		HitchStats::Scope hitch(HitchStats::Category::ShaderCompile);
 		auto translated = ShaderRecompiler::TranslateProgram(params.code, options);
@@ -703,7 +695,7 @@ struct PipelineCache::ProgramCache {
 			    entry->second.specialization));
 		}
 		entry->second.permutations.push_back(CompilePermutation(
-		    params, options, std::move(translated), entry->second.specialization, push_data_cursor));
+		    stage_name, options, std::move(translated), entry->second.specialization, push_data_cursor));
 		const auto& permutation = entry->second.permutations.back();
 		ShaderPrecompile::Record(params, options, permutation.specialization, push_data_cursor,
 		                         lookup_key.static_state, input_info);
@@ -1048,7 +1040,7 @@ void PipelineCache::ReplayPrecompiled(std::vector<ShaderPrecompile::PermutationR
 			            .first;
 		}
 		entry->second.permutations.push_back(m_program_cache->CompilePermutation(
-		    params, options, std::move(translated), record.specialization,
+		    PipelineStageName(options.stage), options, std::move(translated), record.specialization,
 		    record.push_data_start_dword));
 		replayed++;
 	}
