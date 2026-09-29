@@ -118,6 +118,15 @@ bool                   TryReadBacking(uint64_t vaddr, void* data, uint64_t size)
 // (Windows; no-op elsewhere): for data already copied to video memory that the guest CPU rarely
 // touches again, e.g. uploaded textures. The next access pages it back in.
 void                   TrimGuestWorkingSet(uint64_t vaddr, uint64_t size);
+// KYTY_RAM_ATTRIBUTION=1: every 10 s, how much guest memory the emulator's own reads of it
+// (image sources, buffer uploads, small buffer reads) found not resident in the view they read,
+// i.e. what those reads added to the working set. Separates emulator-caused RAM growth from the
+// game's during area loads (Demon's Souls: 2-4 GB within ~10 s). Call before the read;
+// `via_backing`: the bytes are read through the backing view (TryReadBacking), not the guest
+// address. Residency is known on Windows only; elsewhere only the volume is counted.
+enum class EmulatorRead : uint32_t { ImageSource, BufferUpload, SmallBuffer, Count };
+void                   AttributeEmulatorRead(EmulatorRead kind, uint64_t vaddr, uint64_t size,
+                                             bool via_backing);
 bool                   TryReadGpuCleanBacking(uint64_t vaddr, void* data, uint64_t size);
 // While one is alive on the GPU thread (one SRT walk with its memo checks), TryReadGpuCleanBacking
 // remembers 4 KiB pages found wholly GPU-clean and reads them directly: the per-read GPU-dirty,

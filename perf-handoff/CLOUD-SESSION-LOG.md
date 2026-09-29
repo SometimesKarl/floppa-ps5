@@ -194,3 +194,15 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   although the total is the driver's device-local usage when a budget exists; now saturates there.
 - Left as is (perf only, opt-in): the dropped level is still detiled into scratch (tiler infos are not
   per level); AccountedSize counts reduced images at guest size (GC estimates between usage refreshes).
+
+### W4.3 RAM-burst attribution (opt-in)
+- AttributeEmulatorRead (kernel/memory.cpp) is called before the emulator's reads of guest memory for
+  GPU use: image sources (backing view, ObtainBufferForImage), buffer uploads (UploadCopies), small
+  buffer reads (ObtainBuffer stream path). With KYTY_RAM_ATTRIBUTION=1 it counts bytes read and, on
+  Windows, bytes whose pages were not valid in that view's working set before the read
+  (QueryWorkingSetEx), printed per 10 s. Off: one static bool check per call.
+- Verified: Linux build and GPU tests with it on; the Windows branch syntax-checked with clang
+  --target=x86_64-w64-mingw32 (MinGW headers, not the MSVC SDK): no error in the new code (existing
+  VirtualAlloc2/MapViewOfFile3/GetThreadDescription errors come from the MinGW header level).
+- Limits: counts pages made valid in the view read, not physical allocation; a page resident through
+  the other view (guest vs backing) still counts. Recipe 19.

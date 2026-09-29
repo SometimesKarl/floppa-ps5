@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +30,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h> // IWYU pragma: keep
+#include <psapi.h>
 #ifndef MEM_RESERVE_PLACEHOLDER
 #define MEM_RESERVE_PLACEHOLDER 0x00040000
 #endif
@@ -910,6 +912,101 @@ void TrimGuestWorkingSet(uint64_t vaddr, uint64_t size) {
 	(void)vaddr;
 	(void)size;
 #endif
+}
+
+namespace {
+
+struct ReadAttribution {
+	std::atomic<uint64_t> read_bytes {0};
+	std::atomic<uint64_t> not_resident_bytes {0};
+};
+std::array<ReadAttribution, static_cast<size_t>(EmulatorRead::Count)> g_read_attribution;
+std::atomic<int64_t>                                                  g_read_attribution_start {0};
+
+// Bytes of the 4 KiB pages under [address, address + size) not valid in this process's working
+// set; UINT64_MAX where the platform cannot tell.
+uint64_t NonResidentBytes(uint64_t address, uint64_t size) {
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+	constexpr uint64_t Page  = 4096;
+	constexpr size_t   Batch = 4096;
+	const uint64_t     first = address & ~(Page - 1);
+	const uint64_t     pages = (address + size - first + Page - 1) / Page;
+	thread_local std::vector<PSAPI_WORKING_SET_EX_INFORMATION> query;
+	uint64_t missing = 0;
+	for (uint64_t done = 0; done < pages;) {
+		const auto count = static_cast<size_t>(std::min<uint64_t>(pages - done, Batch));
+		query.resize(count);
+		for (size_t i = 0; i < count; i++) {
+			query[i]                = {};
+			query[i].VirtualAddress = reinterpret_cast<PVOID>(first + (done + i) * Page);
+		}
+		if (QueryWorkingSetEx(GetCurrentProcess(), query.data(),
+		                      static_cast<DWORD>(count * sizeof(query[0]))) == 0) {
+			return UINT64_MAX;
+		}
+		for (const auto& page: query) {
+			missing += page.VirtualAttributes.Valid ? 0 : Page;
+		}
+		done += count;
+	}
+	return missing;
+#else
+	(void)address;
+	(void)size;
+	return UINT64_MAX;
+#endif
+}
+
+} // namespace
+
+void AttributeEmulatorRead(EmulatorRead kind, uint64_t vaddr, uint64_t size, bool via_backing) {
+	static const bool enabled = std::getenv("KYTY_RAM_ATTRIBUTION") != nullptr;
+	if (!enabled || size == 0 || kind >= EmulatorRead::Count) {
+		return;
+	}
+	uint64_t address = vaddr;
+	if (via_backing && g_guest_address_space != nullptr) {
+		uint64_t generation = 0;
+		if (const auto* backing = g_guest_address_space->TryGetBackingPointer(vaddr, size, &generation)) {
+			address = reinterpret_cast<uint64_t>(backing);
+		}
+	}
+	auto& entry = g_read_attribution[static_cast<size_t>(kind)];
+	entry.read_bytes.fetch_add(size, std::memory_order_relaxed);
+	if (const auto missing = NonResidentBytes(address, size); missing != UINT64_MAX) {
+		entry.not_resident_bytes.fetch_add(missing, std::memory_order_relaxed);
+	}
+
+	const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+	                        std::chrono::steady_clock::now().time_since_epoch())
+	                        .count();
+	int64_t start = g_read_attribution_start.load(std::memory_order_relaxed);
+	if (start == 0) {
+		g_read_attribution_start.compare_exchange_strong(start, now, std::memory_order_relaxed);
+		return;
+	}
+	if (now - start < 10000 ||
+	    !g_read_attribution_start.compare_exchange_strong(start, now, std::memory_order_relaxed)) {
+		return;
+	}
+	static constexpr const char* Names[] = {"image sources", "buffer uploads", "small buffer reads"};
+	static_assert(std::size(Names) == static_cast<size_t>(EmulatorRead::Count));
+	std::printf("RAM attribution (%.1f s):", static_cast<double>(now - start) / 1000.0);
+	for (size_t i = 0; i < g_read_attribution.size(); i++) {
+		const auto read = g_read_attribution[i].read_bytes.exchange(0, std::memory_order_relaxed);
+		const auto missing =
+		    g_read_attribution[i].not_resident_bytes.exchange(0, std::memory_order_relaxed);
+#if KYTY_PLATFORM == KYTY_PLATFORM_WINDOWS
+		std::printf(" %s read %.1f MiB (%.1f MiB not resident before)%s", Names[i],
+		            static_cast<double>(read) / 1048576.0, static_cast<double>(missing) / 1048576.0,
+		            i + 1 < g_read_attribution.size() ? ";" : "");
+#else
+		(void)missing;
+		std::printf(" %s read %.1f MiB (residency unknown)%s", Names[i],
+		            static_cast<double>(read) / 1048576.0, i + 1 < g_read_attribution.size() ? ";" : "");
+#endif
+	}
+	std::printf("\n");
 }
 
 namespace {

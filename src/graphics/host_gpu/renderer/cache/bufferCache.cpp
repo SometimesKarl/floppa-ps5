@@ -577,6 +577,8 @@ vk::Buffer BufferCache::UploadCopies(Buffer& buffer, std::span<vk::BufferCopy> c
 	if (mapped != nullptr) {
 		for (auto& copy: copies) {
 			const auto address = buffer.CpuAddress() + copy.dstOffset;
+			LibKernel::Memory::AttributeEmulatorRead(LibKernel::Memory::EmulatorRead::BufferUpload,
+			                                         address, copy.size, false);
 			std::memcpy(mapped + copy.srcOffset, reinterpret_cast<const void*>(address), copy.size);
 			copy.srcOffset += base_offset;
 		}
@@ -588,6 +590,8 @@ vk::Buffer BufferCache::UploadCopies(Buffer& buffer, std::span<vk::BufferCopy> c
 	                                         vk::BufferUsageFlagBits::eTransferSrc, total_size);
 	for (const auto& copy: copies) {
 		const auto address = buffer.CpuAddress() + copy.dstOffset;
+		LibKernel::Memory::AttributeEmulatorRead(LibKernel::Memory::EmulatorRead::BufferUpload,
+		                                         address, copy.size, false);
 		std::memcpy(temporary->Mapped().data() + copy.srcOffset,
 		            reinterpret_cast<const void*>(address), copy.size);
 	}
@@ -612,6 +616,8 @@ std::pair<Buffer*, uint64_t> BufferCache::ObtainBuffer(uint64_t vaddr, uint64_t 
 		    m_graphics.physical_device_properties.limits.minUniformBufferOffsetAlignment, 1);
 		auto [mapped, offset] = m_stream_buffer.Map(size, alignment, false);
 		if (mapped != nullptr) {
+			LibKernel::Memory::AttributeEmulatorRead(LibKernel::Memory::EmulatorRead::SmallBuffer,
+			                                         vaddr, size, false);
 			std::memcpy(mapped, reinterpret_cast<const void*>(vaddr), size);
 			m_stream_buffer.Commit();
 			return {&m_stream_buffer, offset};
@@ -649,6 +655,8 @@ std::pair<Buffer*, uint64_t> BufferCache::ObtainBufferForImage(uint64_t vaddr, u
 	}
 
 	auto [staging, stage_offset] = m_staging_buffer.Map(size, 16);
+	Libs::LibKernel::Memory::AttributeEmulatorRead(
+	    Libs::LibKernel::Memory::EmulatorRead::ImageSource, vaddr, size, true);
 	if (staging == nullptr || (!Libs::LibKernel::Memory::TryReadBacking(vaddr, staging, size) &&
 	                           !Libs::LibKernel::Memory::TryReadPrtBacking(vaddr, staging, size))) {
 		EXIT("BufferCache: failed to read mapped guest image backing\n");
