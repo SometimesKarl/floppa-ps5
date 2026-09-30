@@ -72,10 +72,26 @@ private:
 	             uint64_t offset, uint64_t records, uint64_t& result);
 	bool EvaluateInst(const Inst& inst, uint64_t& result);
 	bool EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result);
+	// The value this walk already evaluated at `index`, without a call: most operand requests
+	// of a walk (shared table pointers, descriptor words also read as flat SRT words) hit.
+	bool Memoized(uint32_t index, uint64_t& result) const {
+		if (index >= m_context.values.size()) {
+			return false;
+		}
+		const auto& entry = m_context.values[index];
+		if (entry.generation != m_context.generation) {
+			return false;
+		}
+		result = entry.value;
+		return true;
+	}
 	bool EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result);
+	bool EvaluateRawNode(SrtNode node, uint64_t& result);
+	bool EvaluateFlatSlot(SrtNode node, uint64_t& result);
 	void DecodeNode(uint32_t index, const Inst& inst);
 	bool NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result);
 	uint64_t DecodeRoot(Value value);
+	uint64_t DecodeDescriptorRoot(Value value);
 	bool     EvaluateRoot(uint64_t root, uint32_t& result);
 	bool     EvaluateFlatRead(size_t read, uint32_t& result);
 
@@ -86,6 +102,8 @@ private:
 	Value                           m_active_mask;
 	ResourcePlan::EvaluationContext& m_context;
 	bool                             m_fast = false;
+	// Values the clean walker produced may be reused (see EvaluateIndex).
+	bool m_share_clean = false;
 };
 
 } // namespace Libs::Graphics::ShaderRecompiler::IR

@@ -335,7 +335,18 @@ SrtWalker::SrtWalker(const ResourcePlan& program, const SrtRuntime& runtime,
     : m_program(program), m_runtime(runtime), m_clean_flat_slots(clean_flat_slots),
       m_clean_evaluator(clean_evaluator), m_active_mask(active_mask.Resolve()),
       m_context(AcquireContext(program)),
-      m_fast(program.srt_nodes_enabled && m_active_mask.IsEmpty() && SrtFastEvaluation()) {}
+      m_fast(program.srt_nodes_enabled && m_active_mask.IsEmpty() && SrtFastEvaluation()) {
+	// A value this walk's clean (strict-read) walker already produced holds here too: every guest
+	// word under it was read GPU-clean, and this walker would read the same bytes. Both walkers
+	// otherwise evaluated the shared descriptor and pointer chains separately.
+	// KYTY_SRT_SHARE_CLEAN=0 turns the reuse off.
+	static const bool share_clean = [] {
+		const char* value = std::getenv("KYTY_SRT_SHARE_CLEAN");
+		return value == nullptr || value[0] != '0';
+	}();
+	m_share_clean = share_clean && m_fast && m_clean_evaluator != nullptr &&
+	                m_clean_evaluator->m_fast;
+}
 
 SrtWalker::~SrtWalker() { --m_program.evaluation_depth; }
 
@@ -397,27 +408,28 @@ bool SrtWalker::EvaluateIndex(uint32_t index, const Inst& inst, uint64_t& result
 	if (m_context.values[index].generation == (m_context.generation | 1u)) {
 		return false;
 	}
-	// A value this walk's clean (strict-read) walker already produced holds here too: every guest
-	// word under it was read GPU-clean, and this walker would read the same bytes. Both walkers
-	// otherwise evaluated the shared descriptor and pointer chains separately.
-	// KYTY_SRT_SHARE_CLEAN=0 turns the reuse off.
-	static const bool share_clean = [] {
-		const char* value = std::getenv("KYTY_SRT_SHARE_CLEAN");
-		return value == nullptr || value[0] != '0';
-	}();
-	if (share_clean && m_fast && m_clean_evaluator != nullptr && m_clean_evaluator->m_fast) {
-		const auto& clean = m_clean_evaluator->m_context;
-		if (index < clean.values.size() && clean.values[index].generation == clean.generation) {
-			auto& memo      = m_context.values[index];
-			memo.value      = clean.values[index].value;
-			memo.generation = m_context.generation;
-			result          = memo.value;
-			return true;
-		}
+	if (m_share_clean && m_clean_evaluator->Memoized(index, result)) {
+		auto& memo      = m_context.values[index];
+		memo.value      = result;
+		memo.generation = m_context.generation;
+		return true;
 	}
 	m_context.values[index].generation = m_context.generation | 1u;
-	uint64_t out = 0;
-	const bool evaluated = m_fast ? EvaluateNode(index, inst, out) : EvaluateInst(inst, out);
+	uint64_t out       = 0;
+	bool     evaluated = false;
+	// The two node types that make up most of a walk skip EvaluateNode's general dispatch: raw
+	// reads and flat-slot reads (descriptor words are flat SRT words).
+	const auto& nodes = m_program.srt_nodes;
+	if (!m_fast) {
+		evaluated = EvaluateInst(inst, out);
+	} else if (index < nodes.size() && (nodes[index].kind == 3 || nodes[index].kind == 4)) {
+		evaluated = EvaluateRawNode(nodes[index], out);
+	} else if (index < nodes.size() && nodes[index].kind == 1 &&
+	           nodes[index].op == ValueOpcode::ReadConst) {
+		evaluated = EvaluateFlatSlot(nodes[index], out);
+	} else {
+		evaluated = EvaluateNode(index, inst, out);
+	}
 	// Recursive evaluation may grow the dense memo vector.
 	auto& memo = m_context.values[index];
 	if (!evaluated) {
@@ -617,29 +629,29 @@ void SrtWalker::DecodeNode(uint32_t index, const Inst& inst) {
 	node.inst = &inst;
 	node.op   = inst.GetOpcode();
 	node.kind = 2;
-	const auto decode = [&](Value value, uint32_t operand) {
+	const auto decode_into = [&](SrtNode& target, Value value, uint32_t operand) {
 		const auto bit = static_cast<uint8_t>(1u << operand);
-		node.imm_mask &= static_cast<uint8_t>(~bit);
-		node.bad_mask &= static_cast<uint8_t>(~bit);
+		target.imm_mask &= static_cast<uint8_t>(~bit);
+		target.bad_mask &= static_cast<uint8_t>(~bit);
 		value = value.Resolve();
 		if (value.IsImmediate()) {
 			switch (value.GetType()) {
-				case Type::U1: node.args[operand] = value.U1(); break;
-				case Type::U8: node.args[operand] = value.U8(); break;
-				case Type::U16: node.args[operand] = value.U16(); break;
-				case Type::U32: node.args[operand] = value.U32(); break;
-				case Type::U64: node.args[operand] = value.U64(); break;
+				case Type::U1: target.args[operand] = value.U1(); break;
+				case Type::U8: target.args[operand] = value.U8(); break;
+				case Type::U16: target.args[operand] = value.U16(); break;
+				case Type::U32: target.args[operand] = value.U32(); break;
+				case Type::U64: target.args[operand] = value.U64(); break;
 				case Type::F32:
-					node.args[operand] = std::bit_cast<uint32_t>(value.F32Value());
+					target.args[operand] = std::bit_cast<uint32_t>(value.F32Value());
 					break;
-				default: node.bad_mask |= bit; return;
+				default: target.bad_mask |= bit; return;
 			}
-			node.imm_mask |= bit;
+			target.imm_mask |= bit;
 			return;
 		}
 		const auto* child = value.TryInstruction();
 		if (child == nullptr) {
-			node.bad_mask |= bit;
+			target.bad_mask |= bit;
 			return;
 		}
 		const auto child_index = child->EvaluationIndex(m_program.evaluation_value_count);
@@ -649,8 +661,9 @@ void SrtWalker::DecodeNode(uint32_t index, const Inst& inst) {
 		if (nodes[child_index].inst == nullptr) {
 			nodes[child_index].inst = child;
 		}
-		node.args[operand] = child_index;
+		target.args[operand] = child_index;
 	};
+	const auto decode = [&](Value value, uint32_t operand) { decode_into(node, value, operand); };
 	const auto count = inst.NumArgs();
 	node.argc        = static_cast<uint8_t>(std::min<size_t>(count, 4));
 	// Every node records its operands: extracts and raw reads use their source's operands.
@@ -684,6 +697,41 @@ void SrtWalker::DecodeNode(uint32_t index, const Inst& inst) {
 			if (count >= 2 && first_is_inst && IsRawRead(m_program, inst)) {
 				node.aux  = inst.Flags<MemoryFlags>().index;
 				node.kind = 1;
+				// Most of a walk is these reads (every scalar load has a flat SRT slot). With the
+				// usual handle, keep its operands in this node (kind 3: address load, kind 4:
+				// constant-buffer load with an immediate offset) so a read evaluates them directly
+				// instead of copying and walking the handle node. Operands are evaluated in the
+				// same order as through the handle.
+				const bool  constant_buffer = node.op == ValueOpcode::ReadConstBuffer;
+				const auto* handle          = inst.Arg(0).ResolveInstruction();
+				if (handle == nullptr ||
+				    handle->GetOpcode() != (constant_buffer ? ValueOpcode::GetBufferResource
+				                                            : ValueOpcode::GetAddressResource) ||
+				    handle->NumArgs() != (constant_buffer ? 4u : 2u)) {
+					break;
+				}
+				SrtNode flat = node;
+				flat.imm_mask = 0;
+				flat.bad_mask = 0;
+				if (constant_buffer) {
+					decode_into(flat, inst.Arg(1), 0);
+					if ((flat.imm_mask & 1u) == 0) {
+						break;
+					}
+					flat.offset = static_cast<uint32_t>(flat.args[0]);
+					for (uint32_t operand = 0; operand < 4; operand++) {
+						decode_into(flat, handle->Arg(operand), operand);
+					}
+					flat.argc = 4;
+					flat.kind = 4;
+				} else {
+					decode_into(flat, handle->Arg(0), 0);
+					decode_into(flat, handle->Arg(1), 1);
+					decode_into(flat, inst.Arg(1), 2);
+					flat.argc = 3;
+					flat.kind = 3;
+				}
+				node = flat;
 			}
 			break;
 		case ValueOpcode::CompositeExtractU64:
@@ -726,9 +774,43 @@ bool SrtWalker::NodeArg(const SrtNode& node, uint32_t operand, uint64_t& result)
 		result = node.args[operand];
 		return true;
 	}
-	const auto  index = static_cast<uint32_t>(node.args[operand]);
-	const auto* inst  = m_program.srt_nodes[index].inst;
+	const auto index = static_cast<uint32_t>(node.args[operand]);
+	if (Memoized(index, result)) {
+		return true;
+	}
+	const auto* inst = m_program.srt_nodes[index].inst;
 	return inst != nullptr && EvaluateIndex(index, *inst, result);
+}
+
+// A raw read with the handle's operands in the node (kinds 3 and 4, DecodeNode). `node` is a
+// copy: evaluating operands can decode more nodes and grow the table.
+bool SrtWalker::EvaluateRawNode(const SrtNode node, uint64_t& result) {
+	const bool constant_buffer = node.kind == 4;
+	uint64_t   low             = 0;
+	uint64_t   high            = 0;
+	uint64_t   offset          = node.offset;
+	uint64_t   records         = 0;
+	uint64_t   word3           = 0;
+	if (!NodeArg(node, 0, low) || !NodeArg(node, 1, high)) {
+		return false;
+	}
+	if (constant_buffer ? !NodeArg(node, 2, records) || !NodeArg(node, 3, word3)
+	                    : !NodeArg(node, 2, offset)) {
+		return false;
+	}
+	return ReadRaw(m_program.memory_info[node.aux], constant_buffer, low, high, offset, records,
+	               result);
+}
+
+// A decoded ReadConst: the flat SRT slot's read, through the clean evaluator for a clean slot.
+// `node` is a copy, as in EvaluateRawNode.
+bool SrtWalker::EvaluateFlatSlot(const SrtNode node, uint64_t& result) {
+	auto* evaluator = this;
+	if (node.aux < m_clean_flat_slots.size() && m_clean_flat_slots[node.aux] != 0u &&
+	    m_clean_evaluator != nullptr) {
+		evaluator = m_clean_evaluator;
+	}
+	return evaluator->NodeArg(node, 0, result);
 }
 
 bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result) {
@@ -738,6 +820,9 @@ bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result)
 	}
 	// A copy: evaluating operands can decode more nodes and grow the table.
 	const SrtNode node = nodes[index];
+	if (node.kind == 3 || node.kind == 4) {
+		return EvaluateRawNode(node, result);
+	}
 	if (node.kind != 1) {
 		return EvaluateInst(inst, result);
 	}
@@ -765,14 +850,7 @@ bool SrtWalker::EvaluateNode(uint32_t index, const Inst& inst, uint64_t& result)
 			}
 			return true;
 		case ValueOpcode::GetShaderBase: result = m_runtime.shader_base; return true;
-		case ValueOpcode::ReadConst: {
-			auto* evaluator = this;
-			if (node.aux < m_clean_flat_slots.size() && m_clean_flat_slots[node.aux] != 0u &&
-			    m_clean_evaluator != nullptr) {
-				evaluator = m_clean_evaluator;
-			}
-			return evaluator->NodeArg(node, 0, result);
-		}
+		case ValueOpcode::ReadConst: return EvaluateFlatSlot(node, result);
 		case ValueOpcode::LoadAddressU32:
 		case ValueOpcode::ReadConstBuffer: {
 			const auto handle          = source(0);
@@ -1379,8 +1457,38 @@ namespace {
 constexpr uint64_t RootImmediate = uint64_t {1} << 63u; // low 32 bits: the value
 constexpr uint64_t RootInvalid   = uint64_t {1} << 62u;
 constexpr uint64_t RootNode      = uint64_t {1} << 61u; // low 32 bits: the node index
+constexpr uint64_t RootFlat      = uint64_t {1} << 60u; // low 32 bits: a flat SRT slot
 
 } // namespace
+
+// Descriptor words are mostly ReadConst nodes naming a flat SRT slot whose read the flat buffer
+// refresh already evaluated. Such a root evaluates that read directly (through the clean
+// evaluator for a clean slot, as EvaluateFlatSlot does) instead of first dispatching the ReadConst
+// node. Only for a ReadConst that DecodeNode would decode (valid immediate slot) and whose flat read
+// is not itself a ReadConst.
+uint64_t SrtWalker::DecodeDescriptorRoot(Value value) {
+	const auto root = DecodeRoot(value);
+	if ((root & RootNode) == 0) {
+		return root;
+	}
+	const auto* inst = m_program.srt_nodes[static_cast<uint32_t>(root)].inst;
+	if (inst->GetOpcode() != ValueOpcode::ReadConst || inst->NumArgs() != 2) {
+		return root;
+	}
+	const auto slot = inst->Arg(1).Resolve();
+	if (!slot.IsImmediate() || slot.GetType() != Type::U32 ||
+	    slot.U32() >= m_program.srt_reads.size()) {
+		return root;
+	}
+	const auto* read = m_program.srt_reads[slot.U32()].value.Resolve().TryInstruction();
+	if (read != nullptr && read->GetOpcode() == ValueOpcode::ReadConst) {
+		return root;
+	}
+	if (m_program.flat_roots.size() < m_program.srt_reads.size()) {
+		m_program.flat_roots.resize(m_program.srt_reads.size(), 0);
+	}
+	return RootFlat | slot.U32();
+}
 
 uint64_t SrtWalker::DecodeRoot(Value value) {
 	value = value.Resolve();
@@ -1415,11 +1523,32 @@ bool SrtWalker::EvaluateRoot(uint64_t root, uint32_t& result) {
 		result = static_cast<uint32_t>(root);
 		return true;
 	}
+	if ((root & RootFlat) != 0) {
+		const auto slot      = static_cast<uint32_t>(root);
+		auto*      evaluator = this;
+		if (slot < m_clean_flat_slots.size() && m_clean_flat_slots[slot] != 0u &&
+		    m_clean_evaluator != nullptr) {
+			evaluator = m_clean_evaluator;
+		}
+		// Usually the flat buffer refresh already evaluated the read.
+		const auto flat_root = m_program.flat_roots[slot];
+		uint64_t   wide      = 0;
+		if ((flat_root & RootNode) != 0 && evaluator->m_fast &&
+		    evaluator->Memoized(static_cast<uint32_t>(flat_root), wide)) {
+			result = static_cast<uint32_t>(wide);
+			return true;
+		}
+		return evaluator->EvaluateFlatRead(slot, result);
+	}
 	if ((root & RootNode) == 0) {
 		return false;
 	}
 	const auto index = static_cast<uint32_t>(root);
 	uint64_t   wide  = 0;
+	if (Memoized(index, wide)) {
+		result = static_cast<uint32_t>(wide);
+		return true;
+	}
 	if (!EvaluateIndex(index, *m_program.srt_nodes[index].inst, wide)) {
 		return false;
 	}
@@ -1427,19 +1556,16 @@ bool SrtWalker::EvaluateRoot(uint64_t root, uint32_t& result) {
 	return true;
 }
 
+// RefreshFlatBuffer sizes flat_roots before the first call.
 bool SrtWalker::EvaluateFlatRead(size_t read, uint32_t& result) {
-	const auto& value = m_program.srt_reads[read].value;
 	if (!m_fast) {
-		return Evaluate(value, result);
+		return Evaluate(m_program.srt_reads[read].value, result);
 	}
-	auto& roots = m_program.flat_roots;
-	if (roots.size() < m_program.srt_reads.size()) {
-		roots.resize(m_program.srt_reads.size(), 0);
+	auto& root = m_program.flat_roots[read];
+	if (root == 0) {
+		root = DecodeRoot(m_program.srt_reads[read].value);
 	}
-	if (roots[read] == 0) {
-		roots[read] = DecodeRoot(value);
-	}
-	return EvaluateRoot(roots[read], result);
+	return EvaluateRoot(root, result);
 }
 
 bool SrtWalker::EvaluateDescriptor(uint32_t source, DescriptorValue& result) {
@@ -1466,7 +1592,7 @@ bool SrtWalker::EvaluateDescriptor(uint32_t source, DescriptorValue& result) {
 	auto& decoded = roots[source];
 	for (uint32_t index = 0; index < descriptor.dword_count && index < decoded.size(); ++index) {
 		if (decoded[index] == 0) {
-			decoded[index] = DecodeRoot(descriptor.dwords[index]);
+			decoded[index] = DecodeDescriptorRoot(descriptor.dwords[index]);
 		}
 		if (!EvaluateRoot(decoded[index], result.dwords[index])) {
 			return false;
@@ -1545,6 +1671,9 @@ bool SrtWalker::RefreshFlatBuffer(std::vector<uint32_t>& flat) {
 		return false;
 	}
 	flat.resize(m_program.srt_reads.size());
+	if (m_program.flat_roots.size() < m_program.srt_reads.size()) {
+		m_program.flat_roots.resize(m_program.srt_reads.size(), 0);
+	}
 	for (size_t index = 0; index < m_program.srt_reads.size(); index++) {
 		const auto& read  = m_program.srt_reads[index];
 		const bool  clean = read.flat_offset < m_clean_flat_slots.size() &&

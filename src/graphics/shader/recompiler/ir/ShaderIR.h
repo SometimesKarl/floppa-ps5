@@ -532,8 +532,11 @@ struct SrtNode {
 	const Inst* inst     = nullptr;
 	uint64_t    args[4]  = {};
 	uint32_t    aux      = 0;
+	uint32_t    offset   = 0; // kind 4: the immediate constant-buffer offset
 	ValueOpcode op       = ValueOpcode::Void;
-	uint8_t     kind     = 0; // 0: not decoded, 1: evaluated from the node, 2: by the interpreter
+	// 0: not decoded, 1: evaluated from the node, 2: by the interpreter, 3/4: raw address /
+	// constant-buffer read with the handle's operands in args (SrtWalker::DecodeNode)
+	uint8_t     kind     = 0;
 	uint8_t     argc     = 0; // decoded operands (at most 4)
 	uint8_t     imm_mask = 0; // operand is an immediate held in args[]
 	uint8_t     bad_mask = 0; // operand the walker cannot evaluate

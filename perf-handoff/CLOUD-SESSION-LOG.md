@@ -273,3 +273,28 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   interpreter (every seventh with a failing constant-buffer read), in ctest as `srt_walk_bench`.
 - Baseline (callgrind, `srt_walk_bench 5000 fast`): 80.5k instructions per walk; ~700 per guest word.
 - Verified: builds as its own target (not part of the emulator); in ctest (`srt_walk_bench 20000`).
+  Wall time on this container ~4.6 us per walk (noisy: shared 4-core VM).
+
+### SRT evaluator fast paths (W3, dune per-draw CPU)
+- Profile of the baseline (callgrind): EvaluateIndex/EvaluateNode/NodeArg call and copy overhead, not
+  the reads, dominated. Changes, each keeping evaluation order, memo and failure semantics:
+  1. Memo hits checked inline (SrtWalker::Memoized) in NodeArg and EvaluateRoot before calling
+     EvaluateIndex; the clean-walker sharing test is decided once per walker (m_share_clean).
+  2. Raw reads (LoadAddressU32 through GetAddressResource; ReadConstBuffer through
+     GetBufferResource with an immediate offset) keep the handle's operands in their own node
+     (SrtNode kinds 3/4) and are evaluated by EvaluateRawNode: no handle-node copy, no general
+     dispatch. Operands are evaluated in the same order as through the handle.
+  3. ReadConst (flat-slot) nodes dispatch directly (EvaluateFlatSlot).
+  4. Descriptor words that are ReadConst of a flat slot decode to a flat-slot root: the value is
+     taken from the flat read the buffer refresh already evaluated (same evaluator choice as
+     EvaluateFlatSlot) instead of dispatching the ReadConst node.
+  5. flat_roots sized once per refresh instead of per read.
+- Result on the benchmark: 45.9k instructions per walk (-43%; wall time on this VM 4.7 -> 2.6 us,
+  noisy), results identical to the IR interpreter on 4096 walks; resource_materialization (2000 differential walks) and resource_tracking
+  pass. Expected effect in the game: the evaluator was most of MaterializeResources (34% of the dune
+  GPU thread in X52); the reads through TryReadGuestWithoutFault are unchanged. Not measured in the
+  game: recipe 22 (KYTY_SRT_VERIFY, dune A/B).
+- Risk: the evaluator is on every draw. Semantics argued per change in the commit; the IR interpreter
+  stays available (KYTY_SRT_VERIFY compares both on every materialization in the game).
+- Verified: Linux build; 30 affected ctest cases give output identical to the merge run (28 pass,
+  2 known R7).
