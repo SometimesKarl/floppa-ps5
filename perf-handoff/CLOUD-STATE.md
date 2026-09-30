@@ -59,14 +59,29 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
   tracking, GPU band parity, harness optional features; stale tests fixed (shader_cfg mesh prolog,
   non-copyable Pipeline, avplayer link).
 
+## Status at end of cloud session (2026-09-30, HEAD on claude/eloquent-meitner-6tzgiw)
+- Upstream KytyPS5 merged to 05057c9 (5578667): 28/30 affected tests pass, 2 known R7 failures.
+- Dune per-draw CPU (main focus): SRT evaluator fast paths (80ba8b2) cut the resource walk from
+  80.5k to 45.9k instructions per walk on the dune-shaped benchmark (-43%, identical results to the
+  IR interpreter); memo bypass doubles while a shader keeps missing (d6b8b16). Neither is measured
+  in the game yet (recipes 22, 25).
+- Tools: srt_walk_bench (walk benchmark + differential, 3639b4d), dune_draw_bench (whole draw path
+  through DrawAuto, 1ffa08c). perf works in this container (linux-tools-6.8.0-142, installed per
+  session: `apt-get install linux-tools-common linux-tools-6.8.0-142-generic`).
+- Stability: internal blit re-sets the dynamic stencil state (8680195).
+- Compile stutter: audited (precompile + prewarm + persistent driver cache already make second
+  visits compile-free; draws are never skipped by default); driver-cache save now logs its duration
+  (0753b0d, recipe 24).
+
 ## Next (in order)
-1. Owner: run the local recipe entries 10-20 on Windows (clang-cl build first; this session could only
-   syntax-check Windows code with MinGW headers).
-2. Dune profile of the current build (recipe 2), then decide on W3b compiled SRT program with the
-   differential harness in resource_materialization_tests.
-3. If recipe 20 shows zero-length sleeps from DS job workers: opt-in yield on zero sleeps.
-4. If recipe 19 shows emulator-caused residency: avoid first reads of GPU-only memory where a full
+1. Owner: build 1ffa08c (or later) with clang-cl, run recipe 22 (KYTY_SRT_VERIFY + dune A/B with
+   tools/ab_dune.sh, which also samples the GPU thread) and 21, 24, 25; then 10-20.
+2. With the new dune profile: next per-draw candidates from dune_draw_bench (program lookup key
+   building/hash per draw, render-target resolution per draw, texture lookups).
+3. If recipe 24 shows long saves during play: save the driver cache less often (after N new
+   pipelines and at exit).
+4. If recipe 20 shows zero-length sleeps from DS job workers: opt-in yield on zero sleeps.
+5. If recipe 19 shows emulator-caused residency: avoid first reads of GPU-only memory where a full
    overwrite is proven (plan W5c).
-5. Rasterization test: set stencil state in its hand-recorded draws (validation noise only).
 6. Update the two upstream texture-cache tests for the view-format list (R7) with the next upstream
    merge.

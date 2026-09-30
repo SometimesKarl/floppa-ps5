@@ -125,6 +125,12 @@ unverified, **R** reverted, **O** opt-in (off by default).
 | 9c52585 | depth target sampled read-only: one access for both transitions | U (targets 673 breaks/s) |
 | e49dd65 | fault handler: no re-entry while reporting, bounded backtrace walk | U (fatal path only) |
 
+Cloud sessions 2026-09-29/30 (Linux, no game runs; CLOUD-SESSION-LOG.md): 891e276 and earlier,
+stability/tests/opt-in diagnostics, U (recipes 10-20); 5578667 upstream merge to 05057c9, U (recipe
+21); 80ba8b2 SRT evaluator fast paths, benchmark -43% instructions per walk, game U (recipe 22);
+d6b8b16 memo bypass doubling, U (recipe 25); 8680195 blit stencil state, U (recipe 23); 0753b0d
+driver-cache save timing, U (recipe 24).
+
 Rejected with data: graphics pipeline library fast link (link ~= full compile on this driver),
 spirv-opt (-10% compile for +90% CPU), branchless guarded loads (-9% compile but invalidates driver
 caches), VS/PS walk parallelism (<= 10%), incremental SRT walks (slower), native-1080p "output mode"
