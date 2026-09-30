@@ -14216,6 +14216,15 @@ public:
         };
         set_stencil(vk::StencilFaceFlagBits::eFront, depth.stencil_front);
         set_stencil(vk::StencilFaceFlagBits::eBack, depth.stencil_back);
+      } else {
+        // As SetGraphicsDynamicParams: the pipeline declares the stencil state dynamic, so it is
+        // set even with the test off (VUID-vkCmdDraw-None-07848).
+        const vk::StencilOpState off{};
+        cmd.setStencilOp(vk::StencilFaceFlagBits::eFrontAndBack, off.failOp, off.passOp,
+                         off.depthFailOp, off.compareOp);
+        cmd.setStencilCompareMask(vk::StencilFaceFlagBits::eFrontAndBack, off.compareMask);
+        cmd.setStencilWriteMask(vk::StencilFaceFlagBits::eFrontAndBack, off.writeMask);
+        cmd.setStencilReference(vk::StencilFaceFlagBits::eFrontAndBack, off.reference);
       }
       const vk::Bool32 write = true;
       cmd.setColorWriteEnableEXT(1, &write);
@@ -16213,6 +16222,8 @@ public:
     std::printf("[gpu]     %-32s ok (%u cases, %u format/mode pairs)\n", name,
                 case_index, format_cases);
   }
+
+#include "DuneDrawBench.inc"
 
 private:
   bool m_rasterization_supported = true;
@@ -35890,6 +35901,12 @@ int main(int argc, char **argv) {
   if (argc == 2 && std::strcmp(argv[1], "--readlane-key-guard-only") == 0) {
     VulkanHarness vulkan;
     RunCase(&vulkan, VectorReadlaneSelectsTwoKeysWithinWave());
+    return 0;
+  }
+  if ((argc == 2 || argc == 3) && std::strcmp(argv[1], "--dune-draw-bench") == 0) {
+    VulkanHarness vulkan;
+    vulkan.RunDuneDrawBench(argc == 3 ? static_cast<uint32_t>(std::strtoul(argv[2], nullptr, 10))
+                                      : 20000u);
     return 0;
   }
   if (argc == 2 && std::strcmp(argv[1], "--rt1d-only") == 0) {

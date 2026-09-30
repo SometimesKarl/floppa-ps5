@@ -748,6 +748,8 @@ if(BUILD_TESTING)
 		COMMAND $<TARGET_FILE:shader_recompiler_compute_tests> --buffer-cache-gc-only)
 	add_test(NAME color_render_target_1d
 		COMMAND $<TARGET_FILE:shader_recompiler_compute_tests> --rt1d-only)
+	add_test(NAME dune_draw_bench
+		COMMAND $<TARGET_FILE:shader_recompiler_compute_tests> --dune-draw-bench 256)
 
 	if(WIN32)
 		# These tests still depend on the Windows multisample-depth path.

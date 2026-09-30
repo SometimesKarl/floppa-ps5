@@ -330,3 +330,21 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   line now reports how long the driver took to hand out the data and how long the file write took
   (recipe 24). If either is long, the next step is saving less often (only after N new pipelines, and
   at exit) or merging a separate session cache.
+
+### Dune draw benchmark through the whole draw path (tests/DuneDrawBench.inc)
+- `shader_recompiler_compute_tests --dune-draw-bench [draws]` (ctest `dune_draw_bench`, 256 draws):
+  a pixel shader that loads two T# and an S# through a user-data pointer and a per-draw constant
+  buffer through a second pointer that changes every draw, recorded with RenderExecutor::DrawAuto
+  on a GPU command thread with the renderer installed as the guest-memory GPU resources and push
+  descriptors enabled (as the emulator's device setup). The first draw's output is checked
+  ((tex0 + tex1) * constant). Prints the time inside DrawAuto per draw.
+- Profile (perf, 100k draws, lavapipe): ~7-14 us per draw recorded on this VM. Of the time inside
+  DrawAuto: ExecutePreparedDraw 63% (Vulkan recording inside lavapipe allocates per command: malloc
+  40%, not representative of AMD), PrepareDrawRenderState 25%, GetGraphicsPrograms 21%,
+  MaterializeResources 14% (even for a 5-load shader), PrepareGraphicsBindings 7%, PrepareBindings
+  5%, texture lookups (FindImage/ResolveTexture/FindTexture) ~6%, program lookup (hash, static key,
+  mapped-data lookup) ~4%. Next candidates from it: the per-draw program lookup
+  (BuildStageStaticKey + hash + ShaderGetMappedData), render-target resolution per draw, and the
+  texture lookups; lavapipe's recording cost must be excluded when judging them.
+- Harness notes: the draw bench needs SOFFSET 125 (null) in its SMEM loads; the rasterization test's
+  hand-recorded draws now set the stencil state with the test off (R9 validation noise).
