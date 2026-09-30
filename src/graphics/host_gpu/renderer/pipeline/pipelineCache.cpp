@@ -1272,6 +1272,10 @@ void PipelineCache::WriteDriverCache() {
 		return;
 	}
 
+	// The periodic save runs on a compile worker while the GPU thread may be creating pipelines
+	// through the same VkPipelineCache; how long the driver takes to hand out the data (and may
+	// hold the cache) is logged with each save.
+	const auto           read_begin = Common::Timer::QueryPerformanceCounter();
 	size_t               size = 0;
 	vk::Result           result;
 	std::vector<uint8_t> payload;
@@ -1295,6 +1299,7 @@ void PipelineCache::WriteDriverCache() {
 		return;
 	}
 	payload.resize(size);
+	const auto read_end     = Common::Timer::QueryPerformanceCounter();
 	auto       prefix       = DriverCacheSignature(m_graphics.GetPhysicalDeviceProperties());
 	const auto payload_hash = XXH3_64bits(payload.data(), payload.size());
 	prefix.append(reinterpret_cast<const char*>(&payload_hash), sizeof(payload_hash));
@@ -1319,8 +1324,11 @@ void PipelineCache::WriteDriverCache() {
 		                 Common::PathToString(m_driver_cache_path));
 		return;
 	}
-	PipelineCacheLog("Vulkan pipeline cache: saved {} bytes to {}", payload.size(),
-	                 Common::PathToString(m_driver_cache_path));
+	PipelineCacheLog("Vulkan pipeline cache: saved {} bytes to {} "
+	                 "(driver {:.1f} ms, hash+write {:.1f} ms)",
+	                 payload.size(), Common::PathToString(m_driver_cache_path),
+	                 QpcMs(read_begin, read_end),
+	                 QpcMs(read_end, Common::Timer::QueryPerformanceCounter()));
 }
 
 PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(

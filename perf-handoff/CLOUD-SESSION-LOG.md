@@ -317,3 +317,16 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   walks); a hit resets it. The memo is a cache validated on use, so results cannot change; only
   when the memo is tried does. Expected: capturing misses drop from ~6% to under 1% of walks on the
   dune. KYTY_SRT_MEMO_STATS=1 shows it (recipe 22).
+
+### Driver pipeline cache save timing (compile stutter diagnosis)
+- Audit of first-use compile stutter: every new pipeline is created on the GPU thread (translation,
+  module, vkCreateGraphicsPipelines); recorded shaders/pipelines are replayed before the first guest
+  draw (precompile + prewarm into the driver cache), so a second visit of an area only pays driver
+  cache hits. Not changed: async compiles skip draws (opt-in only) and the fork's rule is no skipped
+  draws.
+- One unmeasured stutter candidate: the driver cache is saved every 60 s while pipelines are being
+  created, on a compile worker, through vkGetPipelineCacheData on the cache the GPU thread uses, and
+  the whole file (up to 512 MB) is rewritten, possibly on the drive the game streams from. The save
+  line now reports how long the driver took to hand out the data and how long the file write took
+  (recipe 24). If either is long, the next step is saving less often (only after N new pipelines, and
+  at exit) or merging a separate session cache.
