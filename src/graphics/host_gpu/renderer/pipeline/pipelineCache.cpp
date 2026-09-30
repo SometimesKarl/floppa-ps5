@@ -294,16 +294,23 @@ struct PipelineCache::ProgramCache {
 		bool                                        skip_dispatch = false;
 		std::array<MaterializeMemo, MemoSlots>      memo;
 		int                                         current_memo = -1;
-		// See MaterializeCached: memo misses in a row, and walks left to run without the memo.
+		// See MaterializeCached: memo misses in a row, walks left to run without the memo, and
+		// back-offs since the last memo hit.
 		uint32_t                                    memo_misses_in_row = 0;
 		uint32_t                                    memo_bypass        = 0;
+		uint32_t                                    memo_backoffs      = 0;
 	};
 	// A shader whose memo keeps missing (a per-draw pointer in its user data: ASTRO BOT's
 	// particle draws, ~90% misses) pays for recording every read of each walk and for trying to
 	// validate old memos, for nothing. After MemoMissBackoff misses in a row its next
-	// MemoBypassWalks walks run without the memo; then the memo is tried again.
-	static constexpr uint32_t MemoMissBackoff = 16;
-	static constexpr uint32_t MemoBypassWalks = 256;
+	// MemoBypassWalks walks run without the memo; then the memo is tried again. Each back-off
+	// without a hit in between doubles the next bypass, up to MemoBypassWalks << MemoMaxDoublings:
+	// in the dune (X49: 2-5% of walks hit, 6% were capturing misses) the shaders that never hit
+	// otherwise ran 16 capturing walks out of every 272. The memo is a cache, so only the cost
+	// changes.
+	static constexpr uint32_t MemoMissBackoff  = 16;
+	static constexpr uint32_t MemoBypassWalks  = 256;
+	static constexpr uint32_t MemoMaxDoublings = 4;
 
 	struct MemoCapture {
 		std::vector<MaterializeRead>* reads  = nullptr;
@@ -455,13 +462,15 @@ struct PipelineCache::ProgramCache {
 			entry.resources.user_data.assign(user_data.begin(), user_data.end());
 			memo.last_use            = memo_clock;
 			entry.memo_misses_in_row = 0;
+			entry.memo_backoffs      = 0;
 			++hits;
 			return;
 		}
 		++misses;
 		if (++entry.memo_misses_in_row >= MemoMissBackoff) {
 			entry.memo_misses_in_row = 0;
-			entry.memo_bypass        = MemoBypassWalks;
+			entry.memo_bypass = MemoBypassWalks << std::min(entry.memo_backoffs, MemoMaxDoublings);
+			entry.memo_backoffs = std::min(entry.memo_backoffs + 1, MemoMaxDoublings);
 		}
 		static std::unordered_map<uint32_t, uint64_t> user_data_misses;
 		static uint64_t                               memory_misses = 0;

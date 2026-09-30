@@ -308,3 +308,12 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   guest draw sets it again. With the test off the values never affected rendering; this keeps the
   command stream valid. Only other graphics pipeline bind in a render command buffer: renderDraw.
 - Verified: builds; GPU lane unchanged. Recipe 23 (validation layer on a real run).
+
+### Memo back-off doubles while a shader keeps missing
+- X49 (dune): per 30 s ~32k memo hits, ~88k capturing misses, ~1.29M walks in bypass; misses came
+  from user-data registers (per-draw pointers), not guest memory. A shader that never hits paid 16
+  capturing walks (read capture, slot copies, validation of old memos) out of every 272.
+- Now each back-off without a hit in between doubles the next bypass (256, 512, ... up to 4096
+  walks); a hit resets it. The memo is a cache validated on use, so results cannot change; only
+  when the memo is tried does. Expected: capturing misses drop from ~6% to under 1% of walks on the
+  dune. KYTY_SRT_MEMO_STATS=1 shows it (recipe 22).
