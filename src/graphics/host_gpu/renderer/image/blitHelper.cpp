@@ -181,6 +181,10 @@ void BlitHelper::ReinterpretColorAsMsDepth(Image& source, Image& destination) {
 	                             &descriptor_write);
 	command.bindPipeline(vk::PipelineBindPoint::eGraphics,
 	                     GetPipeline({destination_info.samples, destination_info.pixel_format}));
+	// This pipeline's stencil state is static: a later guest draw with the stencil test off must
+	// set its (dynamic) stencil state again (SetGraphicsDynamicParams sets it once per command
+	// buffer otherwise).
+	command_buffer.ForgetDynamicState();
 
 	const vk::Viewport viewport {0.0f,
 	                             0.0f,

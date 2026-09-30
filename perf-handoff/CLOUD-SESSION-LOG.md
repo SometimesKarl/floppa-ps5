@@ -298,3 +298,13 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   stays available (KYTY_SRT_VERIFY compares both on every materialization in the game).
 - Verified: Linux build; 30 affected ctest cases give output identical to the merge run (28 pass,
   2 known R7).
+
+### Internal blit resets the stencil dynamic state (fix of 9bdc4fd)
+- 9bdc4fd sets the dynamic stencil ops/masks/reference once per command buffer while the stencil
+  test is off. BlitHelper::ReinterpretColorAsMsDepth binds its own graphics pipeline (static stencil
+  state) into the same command buffer; after that bind Vulkan requires the dynamic stencil state to be
+  set again before the next draw with a pipeline that declares it dynamic (the same rule that makes
+  07848 fire). CommandBuffer::ForgetDynamicState() clears the flag after the blit's bind, so the next
+  guest draw sets it again. With the test off the values never affected rendering; this keeps the
+  command stream valid. Only other graphics pipeline bind in a render command buffer: renderDraw.
+- Verified: builds; GPU lane unchanged. Recipe 23 (validation layer on a real run).

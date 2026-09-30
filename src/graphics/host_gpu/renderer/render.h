@@ -132,6 +132,9 @@ public:
 	// Dynamic stencil state recorded since Begin (renderDraw.cpp SetGraphicsDynamicParams).
 	[[nodiscard]] bool StencilStateSet() const noexcept { return m_stencil_state_set; }
 	void               MarkStencilStateSet() const noexcept { m_stencil_state_set = true; }
+	// A pipeline with static state was bound for an internal draw (blitHelper.cpp): Vulkan requires
+	// the dynamic state of the next guest draw to be set again after that bind.
+	void ForgetDynamicState() const noexcept { m_stencil_state_set = false; }
 	[[nodiscard]] GraphicContext&   GetGraphics() const noexcept { return m_graphics; }
 	[[nodiscard]] RenderContext&    GetContext() const noexcept { return m_context; }
 	[[nodiscard]] HW::Context&      GetRegisters() const noexcept { return *m_registers; }
