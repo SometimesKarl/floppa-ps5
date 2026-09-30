@@ -34,7 +34,9 @@ Behaviour changes are opt-in unless provably equivalent. No performance claims f
 
 ## Build notes
 - Re-configuring an existing build dir can fail in the zarchive FetchContent patch step
-  (non-idempotent `git apply`, 3rdparty/CMakeLists.txt). If it fails: revert with
+  (non-idempotent `git apply`, 3rdparty/CMakeLists.txt). Prevent it once per build dir with
+  `cmake -DFETCHCONTENT_UPDATES_DISCONNECTED=ON <build dir>` (the update and patch steps then do not
+  re-run; done for `_Build/linux-no-qt` on 2026-09-30). If it fails anyway: revert with
   `git -C _Build/linux-no-qt/_deps/zarchive_source-src checkout -- .` and reconfigure. Afterwards CHECK
   the patch is applied: `git -C _Build/linux-no-qt/_deps/zarchive_source-src apply --check --reverse
   --ignore-whitespace 3rdparty/patches/zarchive-reader.patch` must succeed; if not, apply it

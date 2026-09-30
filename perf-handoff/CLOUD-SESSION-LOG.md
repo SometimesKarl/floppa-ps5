@@ -232,3 +232,31 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
 ### Wrap-up (end of cloud session)
 - Stencil dynamic state set once per command buffer with the test off (R9). Final state, done list and
   next steps: CLOUD-STATE.md. Local verification queue: LOCAL-TEST-RECIPE.md entries 10-20.
+
+## Cloud session 2026-09-30 (continued): upstream merge, dune per-draw CPU, compile stutter
+
+### Upstream merge: KytyPS5 main 59a1760..05057c9 (10 commits)
+- Fetched `KytyPS5/KytyPS5` main read-only (remote `upstream`, push URL disabled on purpose).
+  New upstream work: streamed texture mips uploaded from sparse reservations (650dc1e, f9fd400:
+  TryReadPrtBacking became TryReadSparseBacking, unmapped holes read as zero, reads validated against
+  the guest address-space owner); oversized buffer readbacks (18a5f04); APR (`ampr`) rework (5bf9218,
+  c045f08, da9b38a: one append-ordered command sequence, address waits no longer block other
+  priorities, file-read staging reused) which Demon's Souls uses for streaming; Tracy built without
+  its crash handler so ours stay installed (2650478); GPU selection diagnostics (af4edc2); launcher
+  lightbar colour (05057c9) and Linux launcher strip (9d4da48).
+- Conflicts: `memory.h` (kept GpuCleanReadScope and TryReadGuestWithoutFault, took the rename);
+  `bufferCache.cpp` DownloadBufferMemory kept this fork's batched staging (SplitBufferDownload, one
+  staging reservation per batch, WAW barrier): it already stages downloads larger than the 64 MiB
+  buffer, which upstream's 18a5f04 solves with a temporary buffer instead; ObtainBufferForImage takes
+  upstream's sparse read plus this fork's RAM attribution hook. Everything else merged cleanly
+  (libAmpr keeps the fork's single file-system query per path; vulkanWindow keeps the fork's
+  conditional rendering / first-instance / cache-control features).
+- Build note: reconfiguring re-ran the zarchive patch step and failed again; the build directory now
+  has `FETCHCONTENT_UPDATES_DISCONNECTED=ON`, which stops the update/patch steps from re-running
+  (CLOUD-STATE.md build notes).
+- Verified: Linux build (kyty_emulator and the affected test targets); ctest on lavapipe, 30 tests
+  touching the merged code (memory, buffer cache, texture cache, GPU lane, resource walk, emulator
+  CLI): 28 pass, the 2 known R7 failures unchanged. Upstream's new 64/68 MiB readback case
+  (BufferCacheDirtyGarbageCollection, `--buffer-cache-gc-only`) passes with the fork's batched
+  download. Windows not built. Risk: APR scheduling and sparse texture reads are new upstream code
+  (recipe 21).

@@ -657,8 +657,7 @@ std::pair<Buffer*, uint64_t> BufferCache::ObtainBufferForImage(uint64_t vaddr, u
 	auto [staging, stage_offset] = m_staging_buffer.Map(size, 16);
 	Libs::LibKernel::Memory::AttributeEmulatorRead(
 	    Libs::LibKernel::Memory::EmulatorRead::ImageSource, vaddr, size, true);
-	if (staging == nullptr || (!Libs::LibKernel::Memory::TryReadBacking(vaddr, staging, size) &&
-	                           !Libs::LibKernel::Memory::TryReadPrtBacking(vaddr, staging, size))) {
+	if (staging == nullptr || !Libs::LibKernel::Memory::TryReadSparseBacking(vaddr, staging, size)) {
 		EXIT("BufferCache: failed to read mapped guest image backing\n");
 	}
 	m_staging_buffer.Commit();
