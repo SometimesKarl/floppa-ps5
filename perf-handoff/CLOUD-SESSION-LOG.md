@@ -260,3 +260,16 @@ Windows build if possible, unit tests, review), risk, flag, recipe entry.
   (BufferCacheDirtyGarbageCollection, `--buffer-cache-gc-only`) passes with the fork's batched
   download. Windows not built. Risk: APR scheduling and sparse texture reads are new upstream code
   (recipe 21).
+
+### Dune-shaped SRT walk benchmark (tests/SrtWalkBench.cpp, target srt_walk_bench)
+- No repeatable measurement of the resource walk existed off the PC. The benchmark builds a pixel
+  shader shaped like the dune draws with the real resource tracking pass (descriptors behind two
+  levels of guest pointers, a per-draw constant table that moves every draw, all scalar loads as flat
+  SRT words, resources under guest-controlled branches: 17 descriptor sources, 105 flat reads,
+  6 blocks) and walks it as MaterializeCached does on a memo miss (direct reads of mapped memory,
+  strict reads for specialization values). Guest memory is host memory, so reads cost a memcpy: the
+  numbers isolate the evaluator, not the emulator's read path.
+- Also a differential test: 4096 walks per run compare the decoded-node evaluator with the IR
+  interpreter (every seventh with a failing constant-buffer read), in ctest as `srt_walk_bench`.
+- Baseline (callgrind, `srt_walk_bench 5000 fast`): 80.5k instructions per walk; ~700 per guest word.
+- Verified: builds as its own target (not part of the emulator); in ctest (`srt_walk_bench 20000`).
